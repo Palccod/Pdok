@@ -22,8 +22,11 @@ Details:
   through the shell's own tokens.
 - Media routes through the first-party `omarchy.media` service when enabled
   (preferred-player logic + OSD feedback) and falls back to direct MPRIS.
-  Album art is only shown for local `file://` art — never fetched over the
-  network from the shell process.
+  The seek bar supports click/drag seeking; positions longer than an hour
+  render as h:mm:ss. Note: bare `mpv` publishes no MPRIS interface — use an
+  MPRIS bridge (e.g. mpv-mpris) for it to appear here. Album art is only
+  shown for local `file://` art — never fetched over the network from the
+  shell process.
 - The bar button shows a red dot while there are unread notifications, and
   its glyph mirrors the configured side.
 - Notification bodies are normalized to plain text at read time — HTML

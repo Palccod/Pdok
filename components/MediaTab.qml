@@ -39,11 +39,16 @@ Rectangle {
   readonly property string album: activePlayer && activePlayer.trackAlbum ? activePlayer.trackAlbum : ""
   readonly property string identity: activePlayer ? (activePlayer.identity || activePlayer.desktopEntry || "") : ""
   readonly property bool playing: activePlayer && activePlayer.isPlaying
-  readonly property real lengthMs: {
-    var l = activePlayer ? Number(activePlayer.trackLength) : 0
-    return isFinite(l) && l > 0 ? l : 0
-  }
-  property real positionMs: 0
+
+  // Progress. Quickshell's MprisPlayer exposes position and length in
+  // SECONDS (ms precision); `length` is only meaningful when lengthSupported
+  // holds — otherwise it falls back to mirroring position.
+  readonly property bool lengthKnown: activePlayer
+    && activePlayer.lengthSupported === true && Number(activePlayer.length) > 0
+  readonly property real lengthSec: lengthKnown ? Number(activePlayer.length) : 0
+  readonly property bool canSeek: activePlayer && activePlayer.canSeek === true
+  property real positionSec: 0
+
   // Album art only from local files — never fetch over the network from the
   // shell process.
   readonly property string localArtUrl: {
@@ -51,13 +56,14 @@ Rectangle {
     return url.indexOf("file://") === 0 ? url : ""
   }
 
-  // Position refresh — some players never push position updates.
+  // Position does not update reactively — the documented pattern is to
+  // re-read it on a timer while the tab is visible.
   Timer {
-    interval: 1000
+    interval: 500
     running: root.visible && root.hasPlayer
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.positionMs = root.activePlayer ? Number(root.activePlayer.position) || 0 : 0
+    onTriggered: root.positionSec = root.activePlayer ? Number(root.activePlayer.position) || 0 : 0
   }
 
   function runAction(action) {
@@ -70,10 +76,12 @@ Rectangle {
     }
   }
 
-  function fmtTime(ms) {
-    var total = Math.floor((Number(ms) || 0) / 1000)
-    var m = Math.floor(total / 60)
-    var s = total % 60
+  function fmtTime(sec) {
+    var t = Math.max(0, Math.floor(Number(sec) || 0))
+    var h = Math.floor(t / 3600)
+    var m = Math.floor((t % 3600) / 60)
+    var s = t % 60
+    if (h > 0) return h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
     return m + ":" + (s < 10 ? "0" : "") + s
   }
 
@@ -197,25 +205,55 @@ Rectangle {
         visible: root.hasPlayer
         spacing: Style.space(4)
 
-        Rectangle {
+        Item {
+          id: seekArea
           width: parent.width
-          height: Style.space(6)
-          radius: height / 2
-          color: root.fg
-          opacity: 0.12
+          height: Style.space(18)
 
           Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: {
-              if (root.lengthMs <= 0) return 0
-              var r = (root.positionMs % root.lengthMs) / root.lengthMs
-              if (!isFinite(r) || r < 0) r = 0
-              return parent.width * Math.min(1, r)
+            id: track
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            height: Style.space(6)
+            radius: height / 2
+            color: root.fg
+            opacity: seekMa.enabled && seekMa.containsMouse ? 0.2 : 0.12
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.top: parent.top
+              anchors.bottom: parent.bottom
+              width: {
+                if (root.lengthSec <= 0) return 0
+                var r = root.positionSec / root.lengthSec
+                if (!isFinite(r) || r < 0) r = 0
+                return parent.width * Math.min(1, r)
+              }
+              radius: parent.radius
+              color: Color.accent
             }
-            radius: parent.radius
-            color: Color.accent
+          }
+
+          MouseArea {
+            id: seekMa
+            anchors.fill: parent
+            enabled: root.canSeek && root.lengthKnown
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            function seekTo(x) {
+              if (parent.width <= 0) return
+              var frac = Math.max(0, Math.min(1, x / parent.width))
+              var target = frac * root.lengthSec
+              if (root.activePlayer.positionSupported)
+                root.activePlayer.position = target
+              else
+                root.activePlayer.seek(target - root.positionSec)
+              root.positionSec = target
+            }
+
+            onClicked: function(mouse) { seekTo(mouse.x) }
+            onPositionChanged: function(mouse) { if (pressed) seekTo(mouse.x) }
           }
         }
 
@@ -226,7 +264,7 @@ Rectangle {
           Text {
             id: timeElapsed
             anchors.left: parent.left
-            text: root.fmtTime(root.positionMs)
+            text: root.fmtTime(root.positionSec)
             textFormat: Text.PlainText
             color: root.fg
             opacity: 0.5
@@ -236,13 +274,13 @@ Rectangle {
 
           Text {
             anchors.right: parent.right
-            text: root.fmtTime(root.lengthMs)
+            text: root.fmtTime(root.lengthSec)
             textFormat: Text.PlainText
             color: root.fg
             opacity: 0.5
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            visible: root.lengthMs > 0
+            visible: root.lengthKnown
           }
         }
       }
