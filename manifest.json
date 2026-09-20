@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "palccod.pdok",
+  "name": "Pdok",
+  "version": "0.1.0",
+  "author": "palccod",
+  "license": "MIT",
+  "description": "Side notch dashboard: system metrics, media controls, and notification history in a drawer on the screen edge.",
+  "keywords": ["dashboard", "metrics", "media", "notifications", "system"],
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "keepLoaded": true,
+  "barWidget": {
+    "displayName": "Pdok",
+    "description": "Side drawer dashboard — metrics, media, alerts",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
