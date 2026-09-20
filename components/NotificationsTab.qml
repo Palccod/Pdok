@@ -40,7 +40,7 @@ Rectangle {
     Column {
       id: alertsCol
       width: scroll.width
-      spacing: Style.space(10)
+      spacing: Style.space(14)
 
       Item {
         width: parent.width
@@ -124,7 +124,7 @@ Rectangle {
           readonly property bool critical: !!entry && entry.urgency >= 2
 
           width: parent.width
-          height: rowCol.implicitHeight + Style.space(16)
+          height: rowCol.implicitHeight + Style.space(24)
           radius: Style.space(6)
           color: unread ? Style.hoverFill : "transparent"
 
@@ -144,10 +144,10 @@ Rectangle {
             id: rowCol
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(12)
+            anchors.leftMargin: Style.space(14)
             anchors.right: parent.right
-            anchors.rightMargin: Style.space(10)
-            spacing: Style.space(2)
+            anchors.rightMargin: Style.space(12)
+            spacing: Style.space(4)
 
             Item {
               width: parent.width
@@ -187,7 +187,7 @@ Rectangle {
               color: root.fg
               opacity: rowRoot.unread ? 1.0 : 0.55
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: Style.font.body
               font.bold: rowRoot.unread
               elide: Text.ElideRight
               visible: !!rowRoot.entry
@@ -204,6 +204,7 @@ Rectangle {
               wrapMode: Text.WordWrap
               elide: Text.ElideRight
               maximumLineCount: 3
+              lineHeight: 1.2
               visible: !!rowRoot.entry && rowRoot.entry.body.length > 0
             }
           }
