@@ -94,10 +94,20 @@ Item {
     listProc.running = true
   }
 
-  function markAllRead() {
-    root.lastSeen = Date.now()
+  // Mark everything at or older than `timestamp` as read. The read marker
+  // is a single watermark (same model as omarchy.notifications' store), so
+  // clicking one entry also clears older unread ones; newer entries stay
+  // unread.
+  function markReadUpTo(timestamp) {
+    var ts = Number(timestamp)
+    if (!isFinite(ts) || ts <= root.lastSeen) return
+    root.lastSeen = ts
     if (root.stateLoaded)
       stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen }))
+  }
+
+  function markAllRead() {
+    root.markReadUpTo(Date.now())
   }
 
   // ---- state file ----------------------------------------------------------

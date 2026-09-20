@@ -96,6 +96,12 @@ Panel {
       root.svc.markAllRead()
       return "unread=" + root.svc.unreadCount
     }
+
+    function readAt(timestamp: double): string {
+      if (!root.svc) return "service unavailable"
+      root.svc.markReadUpTo(timestamp)
+      return "unread=" + root.svc.unreadCount
+    }
   }
 
   function setSide(s) {

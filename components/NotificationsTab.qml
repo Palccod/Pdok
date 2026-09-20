@@ -126,7 +126,11 @@ Rectangle {
           width: parent.width
           height: rowCol.implicitHeight + Style.space(24)
           radius: Style.space(6)
-          color: unread ? Style.hoverFill : "transparent"
+          color: {
+            if (rowMa.containsMouse) return Style.selectedFill
+            if (unread) return Style.hoverFill
+            return "transparent"
+          }
 
           Rectangle {
             anchors.left: parent.left
@@ -138,6 +142,18 @@ Rectangle {
             color: rowRoot.critical ? Color.urgent : Color.accent
             opacity: rowRoot.unread ? 1.0 : 0.35
             visible: !!rowRoot.entry
+          }
+
+          MouseArea {
+            id: rowMa
+            anchors.fill: parent
+            enabled: !!rowRoot.entry
+            hoverEnabled: true
+            cursorShape: rowRoot.unread ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+              if (rowRoot.unread && root.svc)
+                root.svc.markReadUpTo(rowRoot.entry.timestamp)
+            }
           }
 
           Column {
