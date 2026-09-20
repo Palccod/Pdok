@@ -4,7 +4,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Alerts tab: notification history read from omarchy.notifications' on-disk
+// Notifications tab: notification history read from omarchy.notifications' on-disk
 // store (shared pdok service), with read/unread dimming and mark-all-read.
 Rectangle {
   id: root
@@ -203,7 +203,7 @@ Rectangle {
               font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
               elide: Text.ElideRight
-              maximumLineCount: 2
+              maximumLineCount: 3
               visible: !!rowRoot.entry && rowRoot.entry.body.length > 0
             }
           }

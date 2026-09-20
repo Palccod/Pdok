@@ -37,6 +37,26 @@ Item {
     return count
   }
 
+  // Notification bodies arrive in inconsistent shapes depending on the app:
+  // KDE Connect sends double-escaped HTML ("&lt;br/&gt;") and literal "\n"
+  // sequences, others send real newlines or raw tags. Normalize to plain
+  // text with real line breaks — rendered with Text.PlainText afterwards,
+  // so nothing here can inject formatting.
+  function cleanText(raw) {
+    var s = String(raw === undefined || raw === null ? "" : raw)
+    s = s.replace(/&lt;/g, "<")
+    s = s.replace(/&gt;/g, ">")
+    s = s.replace(/&quot;/g, "\"")
+    s = s.replace(/&#0?39;/g, "'")
+    s = s.replace(/&apos;/g, "'")
+    s = s.replace(/&amp;/g, "&")
+    s = s.replace(/<br\s*\/?>/gi, "\n")
+    s = s.replace(/<[^>]*>/g, "")
+    s = s.split("\\n").join("\n")
+    s = s.replace(/\n{3,}/g, "\n\n")
+    return s.trim()
+  }
+
   // ---- system metrics ------------------------------------------------------
   property real cpuPercent: 0
   property real memPercent: 0
@@ -146,10 +166,10 @@ Item {
           var urg = Math.round(Number(e.urgency))
           clean.push({
             id: String(e.id !== undefined ? e.id : i),
-            app: typeof e.app === "string" ? e.app : "",
+            app: cleanText(e.app),
             appIcon: typeof e.appIcon === "string" ? e.appIcon : "",
-            summary: typeof e.summary === "string" ? e.summary : "",
-            body: typeof e.body === "string" ? e.body : "",
+            summary: cleanText(e.summary),
+            body: cleanText(e.body),
             urgency: isFinite(urg) ? Math.min(3, Math.max(0, urg)) : 1,
             timestamp: isFinite(ts) ? ts : 0
           })

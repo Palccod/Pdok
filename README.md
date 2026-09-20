@@ -14,7 +14,7 @@ that hugs the right (or left) side below the bar.
 |---|---|
 | **Dash** | CPU / memory / disk / battery bars, uptime, network throughput |
 | **Media** | Now-playing with art, progress, and play/pause/next/previous (MPRIS) |
-| **Alerts** | Notification history from Omarchy's own notification store, with unread tracking and mark-all-read |
+| **Notifications** | Notification history from Omarchy's own notification store, with unread tracking and mark-all-read |
 
 Details:
 
@@ -26,6 +26,9 @@ Details:
   network from the shell process.
 - The bar button shows a red dot while there are unread notifications, and
   its glyph mirrors the configured side.
+- Notification bodies are normalized to plain text at read time — HTML
+  entities decoded, `<br>` tags and literal `\n` sequences turned into real
+  line breaks, remaining tags stripped — and always rendered as plain text.
 - Metrics are sampled once per shell in a shared service (`/proc` + `df`),
   not per monitor.
 
@@ -63,7 +66,7 @@ Per-widget settings live in the `palccod.pdok` entry under `bar.layout` in
 
 ```bash
 omarchy-shell palccod.pdok toggle          # open/close/show/hide/toggle
-omarchy-shell palccod.pdok setTab media    # dash | media | alerts (opens the drawer)
+omarchy-shell palccod.pdok setTab media    # dash | media | notifications (opens the drawer)
 omarchy-shell palccod.pdok setSide left    # right | left
 omarchy-shell palccod.pdok markRead        # mark all notifications read
 omarchy-shell palccod.pdok state           # JSON dump for scripting

@@ -37,7 +37,7 @@ Panel {
   readonly property var tabs: [
     { id: "dash", label: "Dash" },
     { id: "media", label: "Media" },
-    { id: "alerts", label: "Alerts" }
+    { id: "notifications", label: "Notifications" }
   ]
 
   implicitWidth: button.implicitWidth
@@ -79,11 +79,13 @@ Panel {
     }
 
     function setTab(tab: string): string {
+      // "alerts" kept as an alias for the pre-rename tab id.
+      var wanted = tab === "alerts" ? "notifications" : tab
       for (var i = 0; i < root.tabs.length; i++) {
-        if (root.tabs[i].id === tab) {
-          root.tab = tab
+        if (root.tabs[i].id === wanted) {
+          root.tab = wanted
           root.open()
-          return "tab=" + tab
+          return "tab=" + wanted
         }
       }
       return "unknown tab"
@@ -272,9 +274,9 @@ Panel {
           fontFamily: root.fontFamily
         }
 
-        AlertsTab {
+        NotificationsTab {
           anchors.fill: parent
-          visible: root.tab === "alerts"
+          visible: root.tab === "notifications"
           svc: root.svc
           fg: root.foreground
           fontFamily: root.fontFamily
