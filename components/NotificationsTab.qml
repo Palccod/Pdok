@@ -65,8 +65,8 @@ Rectangle {
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           visible: root.svc && root.svc.unreadCount > 0
-          width: markReadText.implicitWidth + Style.space(16)
-          height: markReadText.implicitHeight + Style.space(6)
+          width: markReadText.implicitWidth + Style.space(20)
+          height: markReadText.implicitHeight + Style.space(10)
           radius: height / 2
           color: markReadMa.pressed ? Style.pressedFill
             : markReadMa.containsMouse ? Style.hoverFill : "transparent"

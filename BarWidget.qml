@@ -253,7 +253,7 @@ Panel {
       // Tab stack
       Item {
         anchors.top: tabChrome.bottom
-        anchors.topMargin: Style.space(12)
+        anchors.topMargin: Style.space(22)
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
