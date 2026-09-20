@@ -34,7 +34,7 @@ Details:
 From a git clone of this repo:
 
 ```bash
-omarchy plugin add https://github.com/palccod/pdok.git --enable
+omarchy plugin add https://github.com/Palccod/Pdok.git --enable
 ```
 
 Or from a local folder: symlink/copy it to
