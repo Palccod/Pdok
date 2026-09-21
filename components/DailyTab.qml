@@ -39,6 +39,7 @@ Rectangle {
       GifDeck {
         width: parent.width
         files: root.svc ? root.svc.gifFiles : []
+        dirLabel: root.svc ? root.svc.activeGifDir : ""
         fg: root.fg
         fontFamily: root.fontFamily
       }

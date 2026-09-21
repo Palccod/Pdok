@@ -14,6 +14,7 @@ Rectangle {
   color: "transparent"
 
   property var files: []            // file:// URLs, whitelisted by the service
+  property string dirLabel: ""      // active directory, for the empty state
   property color fg: Color.foreground
   property string fontFamily: Style.font.family
   property int intervalMs: 15000
@@ -272,7 +273,9 @@ Rectangle {
 
       Text {
         width: frontCard.width - Style.space(24)
-        text: "Drop GIFs in ~/.local/state/omarchy/pdok/gifs"
+        text: root.dirLabel.length > 0
+          ? "No images in " + root.dirLabel
+          : "Drop GIFs in ~/.local/state/omarchy/pdok/gifs"
         textFormat: Text.PlainText
         color: root.fg
         opacity: 0.4

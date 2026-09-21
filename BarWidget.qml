@@ -25,13 +25,23 @@ Panel {
   readonly property var svc: bar && bar.shell ? bar.shell.serviceFor("palccod.pdok") : null
 
   // Per-widget settings (inline shell.json entry): "side" (left|right),
-  // "width" (drawer px, 280–640).
+  // "width" (drawer px, 280–640), "gifDir" (absolute path or ~/-prefixed;
+  // empty = default sources).
   readonly property string side: setting("side", "right") === "left" ? "left" : "right"
+  readonly property string gifDir: String(setting("gifDir", ""))
   readonly property int panelWidth: {
     var w = Math.round(Number(setting("width", 400)))
     if (!isFinite(w) || w <= 0) w = 400
     return Math.max(280, Math.min(640, w))
   }
+
+  // The service reads the deck folder off its own customGifDir; push the
+  // inline setting into it whenever either side (re)loads.
+  function pushGifDir() {
+    if (svc && typeof svc.setGifDir === "function") svc.setGifDir(gifDir)
+  }
+  onGifDirChanged: pushGifDir()
+  onSvcChanged: pushGifDir()
 
   property string tab: "daily"
   readonly property var tabs: [
@@ -74,6 +84,7 @@ Panel {
         screenW: sidePanel.screenW,
         barW: sidePanel.barW,
         gifs: root.svc ? root.svc.gifFiles.length : -1,
+        gifDir: root.svc ? root.svc.activeGifDir : "",
         dailyTasks: root.svc ? root.svc.daily.tasks.length : -1,
         doneToday: root.svc ? root.svc.todayDoneIds().length : -1,
         streak: root.svc ? root.svc.streak : -1,
@@ -86,6 +97,20 @@ Panel {
       if (side !== "left" && side !== "right") return "side must be left or right"
       root.setSide(side)
       return "side=" + root.side
+    }
+
+    function setGifDir(dir: string): string {
+      if (!root.svc) return "service unavailable"
+      if (!root.svc.setGifDir(dir))
+        return "invalid path — use an absolute directory (~/... ok), no .."
+      var next = {}
+      var current = root.settings ? root.settings : {}
+      for (var k in current) next[k] = current[k]
+      next.gifDir = String(dir).trim()
+      root.settings = next
+      if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
+        bar.shell.updateEntryInline(root.moduleName, next)
+      return "gifDir=" + root.svc.activeGifDir + " gifs=" + root.svc.gifFiles.length
     }
 
     function setTab(tab: string): string {

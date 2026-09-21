@@ -198,6 +198,10 @@ Item {
   readonly property string dwPhotosUrl: "file://" + dwPhotosDir
 
   property var gifFiles: []
+  // Custom GIF directory chosen by the user (empty = default sources:
+  // gifsDir + the desktop-widgets photos folder).
+  property string customGifDir: ""
+  readonly property string activeGifDir: customGifDir !== "" ? customGifDir : gifsDir
 
   property var daily: ({ tasks: [], done: {}, days: {}, todos: [], notes: "" })
   property bool dailyLoaded: false
@@ -395,18 +399,44 @@ Item {
 
   // ---- GIF deck listing -----------------------------------------------------
   // Whitelisted image names from the pdok drop folder and (read-only) the
-  // desktop-widgets photo folder, deduped by name.
+  // desktop-widgets photo folder, deduped by name. A customGifDir replaces
+  // both sources with that one directory.
 
   function isImageName(name) {
     return /^[A-Za-z0-9][A-Za-z0-9 _.-]*\.(gif|png|jpg|jpeg|webp)$/.test(name)
   }
 
+  // Validate and apply a user-chosen GIF directory. Accepts "" to return to
+  // the default sources. Paths must be absolute after ~ expansion, with no
+  // ".." segments — the ls argv stays a fixed array either way, this keeps
+  // IPC callers from pointing the deck at odd places.
+  function setGifDir(raw) {
+    var p = String(raw === undefined || raw === null ? "" : raw).trim()
+    if (p.length === 0) {
+      if (root.customGifDir === "") return true
+      root.customGifDir = ""
+      root.refreshGifs()
+      return true
+    }
+    if (p.charAt(0) === "~") p = home + p.slice(1)
+    if (p.charAt(0) !== "/") return false
+    if (!/^[A-Za-z0-9 ._/-]+$/.test(p)) return false
+    var parts = p.split("/")
+    for (var i = 0; i < parts.length; i++)
+      if (parts[i] === "..") return false
+    p = p.replace(/\/+$/, "")
+    if (p === root.customGifDir) return true
+    root.customGifDir = p
+    root.refreshGifs()
+    return true
+  }
+
   function refreshGifs() {
     if (!gifListProc.running) {
-      gifListProc.command = ["/usr/bin/ls", "-1", root.gifsDir]
+      gifListProc.command = ["/usr/bin/ls", "-1", root.customGifDir !== "" ? root.customGifDir : root.gifsDir]
       gifListProc.running = true
     }
-    if (!gifListProc2.running) {
+    if (root.customGifDir === "" && !gifListProc2.running) {
       gifListProc2.command = ["/usr/bin/ls", "-1", root.dwPhotosDir]
       gifListProc2.running = true
     }
@@ -416,12 +446,15 @@ Item {
     var merged = []
     var seen = {}
     var i
+    var mineBase = root.customGifDir !== "" ? root.customGifDir : root.gifsDir
     for (i = 0; i < mine.length; i++) {
-      var m = root.gifsDir + mine[i]
+      var m = mineBase + (mineBase.charAt(mineBase.length - 1) === "/" ? "" : "/") + mine[i]
       if (!seen[mine[i].toLowerCase()]) { seen[mine[i].toLowerCase()] = true; merged.push("file://" + m) }
     }
-    for (i = 0; i < theirs.length; i++) {
-      if (!seen[theirs[i].toLowerCase()]) { seen[theirs[i].toLowerCase()] = true; merged.push(root.dwPhotosUrl + "/" + theirs[i]) }
+    if (root.customGifDir === "") {
+      for (i = 0; i < theirs.length; i++) {
+        if (!seen[theirs[i].toLowerCase()]) { seen[theirs[i].toLowerCase()] = true; merged.push(root.dwPhotosUrl + "/" + theirs[i]) }
+      }
     }
     root.gifFiles = merged
   }

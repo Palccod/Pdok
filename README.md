@@ -62,6 +62,7 @@ restart the shell.
 
 ## Use
 
+- **SUPER+Z** toggles the drawer (bound in `~/.config/hypr/bindings.lua`).
 - **Click the bar button** (outlined card with a filled strip) to toggle the drawer.
 - **Right-click the button** to flip the drawer between the right and left edge.
 - Escape or clicking anywhere outside closes it. Tab / Shift+Tab move between
@@ -76,6 +77,7 @@ Per-widget settings live in the `palccod.pdok` entry under `bar.layout` in
 |---|---|---|
 | `side` | `right` | Which screen edge the drawer hugs (`left` or `right`) — also set by right-clicking the bar button |
 | `width` | `400` | Drawer width in px (clamped 280–640) |
+| `gifDir` | *(empty)* | Directory the Daily tab's GIF deck reads. Empty = `~/.local/state/omarchy/pdok/gifs` plus the desktop-widgets photos folder (when present). Set to any absolute path (`~/...` works) to read only that directory |
 
 ### IPC
 
@@ -83,6 +85,7 @@ Per-widget settings live in the `palccod.pdok` entry under `bar.layout` in
 omarchy-shell palccod.pdok toggle          # open/close/show/hide/toggle
 omarchy-shell palccod.pdok setTab daily    # daily | dash | media | notifications (opens the drawer)
 omarchy-shell palccod.pdok setSide left    # right | left
+omarchy-shell palccod.pdok setGifDir ~/Pictures/gifs   # custom deck folder ("" = default)
 omarchy-shell palccod.pdok markRead        # mark all notifications read
 omarchy-shell palccod.pdok dailyAddTask "Water the plants"
 omarchy-shell palccod.pdok dailyToggleTask 0   # toggle by index
