@@ -95,10 +95,10 @@ Item {
     mkdirProc.running = true
     powerListProc.running = true
     root.refresh()
+    root.refreshGifs()
     root.sampleMetrics()
     root.sampleDisk()
   }
-
   function refresh() {
     if (listProc.running) return
     listProc.command = ["/usr/bin/ls", "-1t", root.historyDir]
@@ -182,7 +182,301 @@ Item {
 
   Process {
     id: mkdirProc
-    command: ["/usr/bin/mkdir", "-p", root.stateDir]
+    command: ["/usr/bin/mkdir", "-p", root.stateDir, root.gifsDir]
+  }
+
+  // ---- Daily tab -----------------------------------------------------------
+  // Recurring daily tasks (with per-day completion + streak history),
+  // persistent todos, and a scratchpad — all in one state file. Day keys are
+  // local dates ("YYYY-MM-DD"); `days` records fully-completed days at the
+  // moment they complete so later task edits don't rewrite history.
+
+  readonly property string gifsDir: stateDir + "/pdok/gifs/"
+  // The desktop-widgets photo deck folder, if present — its GIFs show here
+  // too (read-only; drop folders stay independent).
+  readonly property string dwPhotosDir: home + "/.config/omarchy/plugins/dagyr.desktop-widgets/photos"
+  readonly property string dwPhotosUrl: "file://" + dwPhotosDir
+
+  property var gifFiles: []
+
+  property var daily: ({ tasks: [], done: {}, days: {}, todos: [], notes: "" })
+  property bool dailyLoaded: false
+  property int _idSeq: 0
+
+  FileView {
+    id: dailyFile
+    path: root.stateDir + "/pdok-daily.json"
+    atomicWrites: true
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      try {
+        var d = JSON.parse(text())
+        root.loadDaily(d)
+      } catch (e) {}
+      root.dailyLoaded = true
+    }
+    onLoadFailed: root.dailyLoaded = true
+  }
+
+  function loadDaily(d) {
+    var base = { tasks: [], done: {}, days: {}, todos: [], notes: "" }
+    if (d && typeof d === "object") {
+      if (Array.isArray(d.tasks)) {
+        for (var i = 0; i < d.tasks.length && i < 100; i++) {
+          var t = d.tasks[i]
+          if (t && typeof t.text === "string" && t.text.length > 0)
+            base.tasks.push({ id: String(t.id || ("t" + i)), text: cleanText(t.text).slice(0, 200) })
+        }
+      }
+      if (d.done && typeof d.done === "object") base.done = clampDayMap(d.done)
+      if (d.days && typeof d.days === "object") base.days = clampDayMap(d.days)
+      if (Array.isArray(d.todos)) {
+        for (var j = 0; j < d.todos.length && j < 200; j++) {
+          var td = d.todos[j]
+          if (td && typeof td.text === "string" && td.text.length > 0)
+            base.todos.push({ id: String(td.id || ("d" + j)), text: cleanText(td.text).slice(0, 200), done: td.done === true })
+        }
+      }
+      if (typeof d.notes === "string") base.notes = cleanText(d.notes).slice(0, 5000)
+    }
+    root.daily = base
+  }
+
+  // Day-keyed map → keep only valid keys, newest 400 entries.
+  function clampDayMap(m) {
+    var keys = []
+    for (var k in m) if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(k)) keys.push(k)
+    keys.sort()
+    if (keys.length > 400) keys = keys.slice(keys.length - 400)
+    var out = {}
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = m[keys[i]]
+    return out
+  }
+
+  function dayKey(offset) {
+    var d = new Date()
+    if (offset) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - offset)
+    return Qt.formatDate(d, "yyyy-MM-dd")
+  }
+
+  function genId(prefix) {
+    root._idSeq = (root._idSeq + 1) % 1000
+    return prefix + Date.now() + "-" + root._idSeq
+  }
+
+  function saveDaily() {
+    if (!root.dailyLoaded) return
+    dailyFile.setText(JSON.stringify(root.daily))
+  }
+
+  function dayDone(key) {
+    return daily.days[key] === true
+  }
+
+  function todayDoneIds() {
+    var list = daily.done[dayKey(0)]
+    return Array.isArray(list) ? list : []
+  }
+
+  // Consecutive completed days ending today (or yesterday if today is not
+  // finished yet).
+  readonly property int streak: {
+    var n = 0
+    var start = dayDone(dayKey(0)) ? 0 : 1
+    for (var i = start; i < 3660; i++) {
+      if (dayDone(dayKey(i))) n++
+      else break
+    }
+    return n
+  }
+
+  readonly property int totalDaysDone: {
+    var n = 0
+    for (var k in daily.days) if (daily.days[k] === true) n++
+    return n
+  }
+
+  // GitHub-style grid for the last 10 weeks, ROW-major: 7 rows (Mon..Sun
+  // top→bottom) × 10 columns (weeks, oldest left), values 0 none / 1
+  // partial / 2 done. Future cells are 0. Today sits at row (weekday),
+  // column 9.
+  readonly property var dailyGrid: {
+    var cells = []
+    var today = new Date()
+    var dow = (today.getDay() + 6) % 7
+    for (var r = 0; r < 7; r++) {
+      for (var c = 0; c < 10; c++) {
+        var offset = (9 - c) * 7 + (dow - r)
+        if (offset < 0) { cells.push(0); continue }
+        var key = dayKey(offset)
+        var doneCount = Array.isArray(daily.done[key]) ? daily.done[key].length : 0
+        if (daily.days[key] === true) cells.push(2)
+        else if (doneCount > 0) cells.push(1)
+        else cells.push(0)
+      }
+    }
+    return cells
+  }
+
+  function addTask(raw) {
+    var t = cleanText(raw).slice(0, 200)
+    if (!t || daily.tasks.length >= 100) return
+    var next = Util.cloneJson(daily)
+    next.tasks = next.tasks.concat([{ id: genId("t"), text: t }])
+    daily = next
+    saveDaily()
+  }
+
+  function removeTask(id) {
+    var next = Util.cloneJson(daily)
+    var keep = []
+    for (var i = 0; i < next.tasks.length; i++)
+      if (next.tasks[i].id !== id) keep.push(next.tasks[i])
+    next.tasks = keep
+    // Drop the task's per-day ticks so stale ids don't linger as ghosts.
+    var cleanedDone = {}
+    for (var key in next.done) {
+      var list = Array.isArray(next.done[key]) ? next.done[key] : []
+      var filtered = []
+      for (var j = 0; j < list.length; j++)
+        if (list[j] !== id) filtered.push(list[j])
+      if (filtered.length > 0) cleanedDone[key] = filtered
+    }
+    next.done = cleanedDone
+    daily = next
+    saveDaily()
+  }
+
+  function toggleTask(id) {
+    var key = dayKey(0)
+    var next = Util.cloneJson(daily)
+    var list = Array.isArray(next.done[key]) ? next.done[key].slice() : []
+    var idx = list.indexOf(id)
+    if (idx >= 0) list.splice(idx, 1)
+    else list.push(id)
+    if (list.length > 0) next.done[key] = list
+    else delete next.done[key]
+    var allDone = next.tasks.length > 0
+    for (var j = 0; j < next.tasks.length; j++) {
+      if (list.indexOf(next.tasks[j].id) < 0) { allDone = false; break }
+    }
+    if (allDone) next.days[key] = true
+    else delete next.days[key]
+    daily = next
+    saveDaily()
+  }
+
+  function addTodo(raw) {
+    var t = cleanText(raw).slice(0, 200)
+    if (!t || daily.todos.length >= 200) return
+    var next = Util.cloneJson(daily)
+    next.todos = next.todos.concat([{ id: genId("d"), text: t, done: false }])
+    daily = next
+    saveDaily()
+  }
+
+  function toggleTodo(id) {
+    var next = Util.cloneJson(daily)
+    for (var i = 0; i < next.todos.length; i++) {
+      if (next.todos[i].id === id) next.todos[i].done = !next.todos[i].done
+    }
+    daily = next
+    saveDaily()
+  }
+
+  function removeTodo(id) {
+    var next = Util.cloneJson(daily)
+    var keep = []
+    for (var i = 0; i < next.todos.length; i++)
+      if (next.todos[i].id !== id) keep.push(next.todos[i])
+    next.todos = keep
+    daily = next
+    saveDaily()
+  }
+
+  function setNotes(raw) {
+    var t = String(raw === undefined || raw === null ? "" : raw).slice(0, 5000)
+    if (t === daily.notes) return
+    var next = Util.cloneJson(daily)
+    next.notes = t
+    daily = next
+    saveDaily()
+  }
+
+  // ---- GIF deck listing -----------------------------------------------------
+  // Whitelisted image names from the pdok drop folder and (read-only) the
+  // desktop-widgets photo folder, deduped by name.
+
+  function isImageName(name) {
+    return /^[A-Za-z0-9][A-Za-z0-9 _.-]*\.(gif|png|jpg|jpeg|webp)$/.test(name)
+  }
+
+  function refreshGifs() {
+    if (!gifListProc.running) {
+      gifListProc.command = ["/usr/bin/ls", "-1", root.gifsDir]
+      gifListProc.running = true
+    }
+    if (!gifListProc2.running) {
+      gifListProc2.command = ["/usr/bin/ls", "-1", root.dwPhotosDir]
+      gifListProc2.running = true
+    }
+  }
+
+  function applyGifFiles(mine, theirs) {
+    var merged = []
+    var seen = {}
+    var i
+    for (i = 0; i < mine.length; i++) {
+      var m = root.gifsDir + mine[i]
+      if (!seen[mine[i].toLowerCase()]) { seen[mine[i].toLowerCase()] = true; merged.push("file://" + m) }
+    }
+    for (i = 0; i < theirs.length; i++) {
+      if (!seen[theirs[i].toLowerCase()]) { seen[theirs[i].toLowerCase()] = true; merged.push(root.dwPhotosUrl + "/" + theirs[i]) }
+    }
+    root.gifFiles = merged
+  }
+
+  Process {
+    id: gifListProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var mine = []
+        var lines = text.split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var name = lines[i].trim()
+          if (isImageName(name)) mine.push(name)
+        }
+        root._gifMine = mine
+        root.applyGifFiles(root._gifMine, root._gifTheirs)
+      }
+    }
+  }
+
+  Process {
+    id: gifListProc2
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var theirs = []
+        var lines = text.split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var name = lines[i].trim()
+          if (isImageName(name)) theirs.push(name)
+        }
+        root._gifTheirs = theirs
+        root.applyGifFiles(root._gifMine, root._gifTheirs)
+      }
+    }
+  }
+
+  property var _gifMine: []
+  property var _gifTheirs: []
+
+  Timer {
+    interval: 60000
+    running: true
+    repeat: true
+    onTriggered: root.refreshGifs()
   }
 
   // ---- notification history reading (two fixed-argv steps) ----------------

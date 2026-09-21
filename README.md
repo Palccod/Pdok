@@ -12,12 +12,21 @@ that hugs the right (or left) side below the bar.
 
 | Tab | Shows |
 |---|---|
+| **Daily** | GIF deck on top (3D photo-stack style), a GitHub-style streak grid for your daily tasks, today's recurring tasks, a scratchpad, and todos |
 | **Dash** | CPU / memory / disk / battery bars, uptime, network throughput |
-| **Media** | Now-playing with art, progress, and play/pause/next/previous (MPRIS) |
+| **Media** | Now-playing with art, seekable progress, and play/pause/next/previous (MPRIS) |
 | **Notifications** | Notification history from Omarchy's own notification store, with unread tracking and mark-all-read |
 
 Details:
 
+- **Daily tab**: the deck plays GIFs from
+  `~/.local/state/omarchy/pdok/gifs/` (create it and drop files in), plus —
+  read-only — the desktop-widgets photo folder when present. Click the
+  right half of the card to advance, left half to go back; it auto-cycles.
+  Daily tasks reset each day; checking off every task completes the day
+  and feeds the 10-week streak grid (green = fully done, translucent =
+  partially done). Todos and the notes scratchpad persist as-is. All of it
+  lives in `~/.local/state/omarchy/pdok-daily.json`.
 - The drawer follows your theme (colors, fonts, radii, popup translucency)
   through the shell's own tokens.
 - Media routes through the first-party `omarchy.media` service when enabled
@@ -71,10 +80,14 @@ Per-widget settings live in the `palccod.pdok` entry under `bar.layout` in
 
 ```bash
 omarchy-shell palccod.pdok toggle          # open/close/show/hide/toggle
-omarchy-shell palccod.pdok setTab media    # dash | media | notifications (opens the drawer)
+omarchy-shell palccod.pdok setTab daily    # daily | dash | media | notifications (opens the drawer)
 omarchy-shell palccod.pdok setSide left    # right | left
 omarchy-shell palccod.pdok markRead        # mark all notifications read
-omarchy-shell palccod.pdok state           # JSON dump for scripting
+omarchy-shell palccod.pdok dailyAddTask "Water the plants"
+omarchy-shell palccod.pdok dailyToggleTask 0   # toggle by index
+omarchy-shell palccod.pdok dailyRemoveTask 0   # remove by index
+omarchy-shell palccod.pdok dailySummary    # JSON: tasks, doneToday, streak, todos, gifs
+omarchy-shell palccod.pdok state           # full JSON dump for scripting
 ```
 
 Read/unread state is stored in `~/.local/state/omarchy/pdok.json`; the

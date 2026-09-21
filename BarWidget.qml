@@ -33,8 +33,9 @@ Panel {
     return Math.max(280, Math.min(640, w))
   }
 
-  property string tab: "dash"
+  property string tab: "daily"
   readonly property var tabs: [
+    { id: "daily", label: "Daily" },
     { id: "dash", label: "Dash" },
     { id: "media", label: "Media" },
     { id: "notifications", label: "Notifications" }
@@ -44,7 +45,10 @@ Panel {
   implicitHeight: button.implicitHeight
 
   onOpenedChanged: {
-    if (opened && svc) svc.refresh()
+    if (opened && svc) {
+      svc.refresh()
+      svc.refreshGifs()
+    }
   }
 
   IpcHandler {
@@ -68,7 +72,13 @@ Panel {
         contentWidth: sidePanel.contentWidth,
         contentHeight: sidePanel.contentHeight,
         screenW: sidePanel.screenW,
-        barW: sidePanel.barW
+        barW: sidePanel.barW,
+        gifs: root.svc ? root.svc.gifFiles.length : -1,
+        dailyTasks: root.svc ? root.svc.daily.tasks.length : -1,
+        doneToday: root.svc ? root.svc.todayDoneIds().length : -1,
+        streak: root.svc ? root.svc.streak : -1,
+        todos: root.svc ? root.svc.daily.todos.length : -1,
+        notesChars: root.svc ? root.svc.daily.notes.length : -1
       })
     }
 
@@ -109,6 +119,40 @@ Panel {
       if (!/^[0-9]+-[0-9]+\.json$/.test(id)) return "invalid id"
       root.svc.markEntryRead(id)
       return "unread=" + root.svc.unreadCount
+    }
+
+    function dailyAddTask(text: string): string {
+      if (!root.svc) return "service unavailable"
+      root.svc.addTask(text)
+      return "tasks=" + root.svc.daily.tasks.length
+    }
+
+    function dailyToggleTask(index: int): string {
+      if (!root.svc) return "service unavailable"
+      var i = Math.round(Number(index))
+      if (!isFinite(i) || i < 0 || i >= root.svc.daily.tasks.length) return "bad index"
+      root.svc.toggleTask(root.svc.daily.tasks[i].id)
+      return "doneToday=" + root.svc.todayDoneIds().length + " streak=" + root.svc.streak
+    }
+
+    function dailyRemoveTask(index: int): string {
+      if (!root.svc) return "service unavailable"
+      var i = Math.round(Number(index))
+      if (!isFinite(i) || i < 0 || i >= root.svc.daily.tasks.length) return "bad index"
+      root.svc.removeTask(root.svc.daily.tasks[i].id)
+      return "tasks=" + root.svc.daily.tasks.length
+    }
+
+    function dailySummary(): string {
+      if (!root.svc) return "service unavailable"
+      return JSON.stringify({
+        tasks: root.svc.daily.tasks.length,
+        doneToday: root.svc.todayDoneIds().length,
+        streak: root.svc.streak,
+        totalDaysDone: root.svc.totalDaysDone,
+        todos: root.svc.daily.todos.length,
+        gifs: root.svc.gifFiles.length
+      })
     }
   }
 
@@ -222,7 +266,7 @@ Panel {
 
               required property var modelData
 
-              width: parent.width / 3
+              width: parent.width / root.tabs.length
               height: parent.height
               radius: Style.space(6)
               color: {
@@ -275,6 +319,14 @@ Panel {
         DashTab {
           anchors.fill: parent
           visible: root.tab === "dash"
+          svc: root.svc
+          fg: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        DailyTab {
+          anchors.fill: parent
+          visible: root.tab === "daily"
           svc: root.svc
           fg: root.foreground
           fontFamily: root.fontFamily

@@ -1,0 +1,213 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import qs.Commons
+import qs.Ui
+
+// Daily tab: GIF deck on top, then the streak dashboard, today's recurring
+// tasks, the scratchpad, and todos.
+Rectangle {
+  id: root
+
+  color: "transparent"
+
+  property var svc: null
+  property color fg: Color.foreground
+  property string fontFamily: Style.font.family
+
+  Timer {
+    id: notesSaveTimer
+    interval: 600
+    onTriggered: if (root.svc) root.svc.setNotes(notesArea.text)
+  }
+
+  Flickable {
+    id: scroll
+    anchors.fill: parent
+    contentWidth: width
+    contentHeight: contentCol.implicitHeight
+    clip: true
+    boundsBehavior: Flickable.StopAtBounds
+    interactive: contentHeight > height
+
+    Column {
+      id: contentCol
+      width: scroll.width
+      spacing: Style.space(16)
+
+      GifDeck {
+        width: parent.width
+        files: root.svc ? root.svc.gifFiles : []
+        fg: root.fg
+        fontFamily: root.fontFamily
+      }
+
+      // Streak dashboard
+      Column {
+        width: parent.width
+        spacing: Style.space(8)
+
+        Item {
+          width: parent.width
+          height: streakHeader.implicitHeight
+
+          Text {
+            id: streakHeader
+            anchors.left: parent.left
+            text: "Streak"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.letterSpacing: 1
+          }
+
+          Text {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: {
+              if (!root.svc || root.svc.daily.tasks.length === 0) return "no daily tasks yet"
+              return root.svc.todayDoneIds().length + " / " + root.svc.daily.tasks.length + " today"
+            }
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        StreakGrid {
+          width: parent.width
+          svc: root.svc
+          fg: root.fg
+          fontFamily: root.fontFamily
+        }
+      }
+
+      // Daily tasks
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+
+        Text {
+          text: "Daily tasks"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.letterSpacing: 1
+        }
+
+        TaskList {
+          width: parent.width
+          daily: true
+          svc: root.svc
+          fg: root.fg
+          fontFamily: root.fontFamily
+        }
+      }
+
+      // Scratchpad
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+
+        Text {
+          text: "Quick notes"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.letterSpacing: 1
+        }
+
+        Rectangle {
+          id: notesBox
+          width: parent.width
+          height: Math.min(Math.max(notesArea.contentHeight + Style.space(20), Style.space(90)), Style.space(260))
+          radius: Style.space(6)
+          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.04)
+          border.width: 1
+          border.color: notesArea.activeFocus ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.35) : "transparent"
+
+          ScrollView {
+            anchors.fill: parent
+            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff }
+
+            TextArea {
+              id: notesArea
+              padding: Style.space(10)
+              wrapMode: TextArea.Wrap
+              color: root.fg
+              opacity: 0.9
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              textFormat: TextEdit.PlainText
+              persistentSelection: false
+
+              // Init once, then sync only while unfocused — a binding here
+              // would yank the cursor on every daily-state change.
+              Component.onCompleted: if (root.svc) text = root.svc.daily.notes
+
+              Connections {
+                target: root.svc || null
+                function onDailyChanged() {
+                  if (!notesArea.activeFocus && notesArea.text !== root.svc.daily.notes)
+                    notesArea.text = root.svc.daily.notes
+                }
+              }
+
+              onTextChanged: {
+                if (!root.svc) return
+                if (text === root.svc.daily.notes) return
+                notesSaveTimer.restart()
+              }
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: Style.space(10)
+            visible: notesArea.text.length === 0 && !notesArea.activeFocus
+            text: "Jot anything — saved automatically."
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.3
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+        }
+      }
+
+      // Todos
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+
+        Text {
+          text: "Todos"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.letterSpacing: 1
+        }
+
+        TaskList {
+          width: parent.width
+          daily: false
+          svc: root.svc
+          fg: root.fg
+          fontFamily: root.fontFamily
+        }
+      }
+    }
+  }
+}
