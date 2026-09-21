@@ -28,9 +28,9 @@ Details:
   shown for local `file://` art — never fetched over the network from the
   shell process.
 - The bar button shows a red dot while there are unread notifications, and
-  its glyph mirrors the configured side. Clicking an unread entry (or the
-  Mark read button) marks it read; the read marker is a single watermark,
-  so a click also clears older entries.
+  its glyph mirrors the configured side. Clicking an unread entry marks
+  just that entry read; the Mark read button (or everything-before mark)
+  clears in bulk. Read flags live in `~/.local/state/omarchy/pdok.json`.
 - Notification bodies are normalized to plain text at read time — HTML
   entities decoded, `<br>` tags and literal `\n` sequences turned into real
   line breaks, remaining tags stripped — and always rendered as plain text.

@@ -25,15 +25,26 @@ Item {
   readonly property int maxEntries: 80
 
   property var entries: []
+  // File names queued into the current/last jq read; entries take their
+  // unique id from these (daemon notification ids can repeat over time).
+  property var _pendingFiles: []
   property double lastSeen: 0
+  // Per-entry read flags, keyed by history file name (unique). The
+  // watermark covers "mark all"; individually clicked entries are flagged
+  // so a click never touches neighbouring rows. Flags are pruned to the
+  // current unread set on every persist, so the map stays small.
+  property var readIds: ({})
   property bool stateLoaded: false
+
+  function isUnread(entry) {
+    if (!entry) return false
+    return entry.timestamp > lastSeen && !readIds[entry.id]
+  }
 
   readonly property int unreadCount: {
     var count = 0
-    for (var i = 0; i < entries.length; i++) {
-      if (entries[i].timestamp > lastSeen) count++
-      else break
-    }
+    for (var i = 0; i < entries.length; i++)
+      if (isUnread(entries[i])) count++
     return count
   }
 
@@ -94,20 +105,60 @@ Item {
     listProc.running = true
   }
 
-  // Mark everything at or older than `timestamp` as read. The read marker
-  // is a single watermark (same model as omarchy.notifications' store), so
-  // clicking one entry also clears older unread ones; newer entries stay
-  // unread.
+  function persistState() {
+    if (!root.stateLoaded) return
+    // Keep flags only for entries the watermark doesn't already cover.
+    var ids = {}
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i]
+      if (e.timestamp > root.lastSeen && root.readIds[e.id]) ids[e.id] = true
+    }
+    root.readIds = ids
+    stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen, readIds: ids }))
+  }
+
+  function loadStateFlags(d) {
+    if (d && d.readIds && typeof d.readIds === "object" && !Array.isArray(d.readIds))
+      root.readIds = d.readIds
+  }
+
+  function markEntryRead(id) {
+    var key = String(id === undefined || id === null ? "" : id)
+    if (key.length === 0 || root.readIds[key]) return
+    var next = {}
+    for (var k in root.readIds) next[k] = true
+    next[key] = true
+    root.readIds = next
+    persistState()
+  }
+
+  // Mark every currently-listed entry at or older than `timestamp` read,
+  // individually (without moving the watermark, so newer entries — and the
+  // watermark's meaning for future arrivals — are untouched).
   function markReadUpTo(timestamp) {
     var ts = Number(timestamp)
-    if (!isFinite(ts) || ts <= root.lastSeen) return
-    root.lastSeen = ts
-    if (root.stateLoaded)
-      stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen }))
+    if (!isFinite(ts)) return
+    var next = {}
+    for (var k in root.readIds) next[k] = true
+    var changed = false
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i]
+      if (e.timestamp <= ts && !root.readIds[e.id]) {
+        next[e.id] = true
+        changed = true
+      }
+    }
+    if (changed) {
+      root.readIds = next
+      persistState()
+    }
   }
 
   function markAllRead() {
-    root.markReadUpTo(Date.now())
+    root.lastSeen = Date.now()
+    root.readIds = {}
+    if (root.stateLoaded)
+      stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen, readIds: {} }))
   }
 
   // ---- state file ----------------------------------------------------------
@@ -122,6 +173,7 @@ Item {
       try {
         var d = JSON.parse(text())
         if (d && isFinite(Number(d.lastSeen))) root.lastSeen = Number(d.lastSeen)
+        root.loadStateFlags(d)
       } catch (e) {}
       root.stateLoaded = true
     }
@@ -153,6 +205,7 @@ Item {
           return
         }
         if (readProc.running) return
+        root._pendingFiles = files
         var argv = ["/usr/bin/jq", "-s", "-c", "."]
         for (var j = 0; j < files.length; j++) argv.push(root.historyDir + files[j])
         readProc.command = argv
@@ -175,7 +228,8 @@ Item {
           var ts = Number(e.timestamp)
           var urg = Math.round(Number(e.urgency))
           clean.push({
-            id: String(e.id !== undefined ? e.id : i),
+            id: root._pendingFiles && root._pendingFiles[i] !== undefined
+              ? String(root._pendingFiles[i]) : String(i),
             app: cleanText(e.app),
             appIcon: typeof e.appIcon === "string" ? e.appIcon : "",
             summary: cleanText(e.summary),

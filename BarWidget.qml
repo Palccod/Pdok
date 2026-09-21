@@ -102,6 +102,14 @@ Panel {
       root.svc.markReadUpTo(timestamp)
       return "unread=" + root.svc.unreadCount
     }
+
+    function readId(id: string): string {
+      if (!root.svc) return "service unavailable"
+      // Only history-file names are valid entry ids.
+      if (!/^[0-9]+-[0-9]+\.json$/.test(id)) return "invalid id"
+      root.svc.markEntryRead(id)
+      return "unread=" + root.svc.unreadCount
+    }
   }
 
   function setSide(s) {

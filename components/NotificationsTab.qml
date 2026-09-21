@@ -120,7 +120,7 @@ Rectangle {
           required property int index
 
           readonly property var entry: root.svc ? root.svc.entries[index] : null
-          readonly property bool unread: !!entry && entry.timestamp > root.svc.lastSeen
+          readonly property bool unread: root.svc ? root.svc.isUnread(entry) : false
           readonly property bool critical: !!entry && entry.urgency >= 2
 
           width: parent.width
@@ -152,7 +152,7 @@ Rectangle {
             cursorShape: rowRoot.unread ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
               if (rowRoot.unread && root.svc)
-                root.svc.markReadUpTo(rowRoot.entry.timestamp)
+                root.svc.markEntryRead(rowRoot.entry.id)
             }
           }
 
