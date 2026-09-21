@@ -297,26 +297,15 @@ Item {
     return n
   }
 
-  // GitHub-style grid for the last 10 weeks, ROW-major: 7 rows (Mon..Sun
-  // top→bottom) × 10 columns (weeks, oldest left), values 0 none / 1
-  // partial / 2 done. Future cells are 0. Today sits at row (weekday),
-  // column 9.
-  readonly property var dailyGrid: {
-    var cells = []
-    var today = new Date()
-    var dow = (today.getDay() + 6) % 7
-    for (var r = 0; r < 7; r++) {
-      for (var c = 0; c < 10; c++) {
-        var offset = (9 - c) * 7 + (dow - r)
-        if (offset < 0) { cells.push(0); continue }
-        var key = dayKey(offset)
-        var doneCount = Array.isArray(daily.done[key]) ? daily.done[key].length : 0
-        if (daily.days[key] === true) cells.push(2)
-        else if (doneCount > 0) cells.push(1)
-        else cells.push(0)
-      }
-    }
-    return cells
+  // Grid state for a day, `offset` days before today (0 = today, negative =
+  // future): 0 none / 1 partial / 2 fully done.
+  function dayState(offset) {
+    if (offset < 0) return 0
+    var key = dayKey(offset)
+    if (daily.days[key] === true) return 2
+    var doneCount = Array.isArray(daily.done[key]) ? daily.done[key].length : 0
+    if (doneCount > 0) return 1
+    return 0
   }
 
   function addTask(raw) {

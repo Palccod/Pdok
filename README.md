@@ -24,9 +24,10 @@ Details:
   read-only — the desktop-widgets photo folder when present. Click the
   right half of the card to advance, left half to go back; it auto-cycles.
   Daily tasks reset each day; checking off every task completes the day
-  and feeds the 10-week streak grid (green = fully done, translucent =
-  partially done). Todos and the notes scratchpad persist as-is. All of it
-  lives in `~/.local/state/omarchy/pdok-daily.json`.
+  and feeds the GitHub-style contribution grid (green = fully done,
+  translucent = partially done, ring = today; one slim column per week
+  with month labels). Todos and the notes scratchpad persist as-is. All of
+  it lives in `~/.local/state/omarchy/pdok-daily.json`.
 - The drawer follows your theme (colors, fonts, radii, popup translucency)
   through the shell's own tokens.
 - Media routes through the first-party `omarchy.media` service when enabled

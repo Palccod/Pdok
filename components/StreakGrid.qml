@@ -3,10 +3,11 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import qs.Commons
 
-// GitHub-style contribution grid for the last 10 weeks: 10 columns (weeks,
-// oldest left) × 7 rows (Mon..Sun). Green like the reference dashboards —
-// full intensity when a day's daily tasks were all completed, translucent
-// for partially-completed days. Today gets a ring.
+// GitHub-style contribution grid: small fixed-size cells, one column per
+// week (as many as fit the width, oldest left), 7 rows Mon..Sun. Green like
+// the reference — solid when a day's daily tasks were all completed,
+// translucent for partial days. Month labels across the top, Less/More
+// legend underneath.
 Rectangle {
   id: root
 
@@ -17,11 +18,33 @@ Rectangle {
   property string fontFamily: Style.font.family
 
   readonly property color doneGreen: "#3fb950"
-  readonly property int gap: 3
-  // Today sits in the current weekday's row (Mon=0), last column.
-  readonly property int todayIndex: {
-    var t = new Date()
-    return ((t.getDay() + 6) % 7) * 10 + 9
+  readonly property int cellSize: 11
+  readonly property int gapSize: 3
+  readonly property int step: cellSize + gapSize
+  readonly property int weeks: Math.max(10, Math.min(30, Math.floor((width + gapSize) / step)))
+  readonly property int gridW: weeks * step - gapSize
+  readonly property int gridH: 7 * step - gapSize
+  // Weekday of today, Monday = 0.
+  readonly property int dow: (new Date().getDay() + 6) % 7
+  readonly property int todayCol: weeks - 1
+  readonly property int todayRow: dow
+
+  // Day offset behind today for grid cell (row r, col c). Column c's top
+  // row is its Monday; the current week's Monday is `dow` days ago.
+  function dayOffset(r, c) {
+    return dow + (weeks - 1 - c) * 7 - r
+  }
+
+  function monthLabel(col) {
+    var monOffset = dayOffset(0, col)
+    var d = new Date()
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - monOffset)
+    if (col > 0) {
+      var prev = new Date()
+      prev = new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - dayOffset(0, col - 1))
+      if (prev.getMonth() === d.getMonth()) return ""
+    }
+    return Qt.formatDate(d, "MMM")
   }
 
   height: gridCol.implicitHeight
@@ -48,13 +71,12 @@ Rectangle {
           textFormat: Text.PlainText
           color: root.svc && root.svc.streak > 0 ? root.doneGreen : root.fg
           font.family: root.fontFamily
-          font.pixelSize: Style.font.heading
+          font.pixelSize: Style.font.body
           font.bold: true
         }
 
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          anchors.baselineOffset: 0
           text: "day streak"
           textFormat: Text.PlainText
           color: root.fg
@@ -77,33 +99,55 @@ Rectangle {
       }
     }
 
-    // Grid: 10 × 7 cells
+    // Month labels
     Item {
-      id: gridArea
-      width: parent.width
-      height: width * 7 / 10
-
-      readonly property real cell: (width - 9 * root.gap) / 10
+      width: root.gridW
+      height: Style.space(12)
 
       Repeater {
-        model: 70
+        model: root.weeks
+
+        delegate: Text {
+          required property int index
+
+          x: index * root.step
+          y: 0
+          text: root.monthLabel(index)
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.45
+          font.family: root.fontFamily
+          font.pixelSize: 9
+          visible: text.length > 0
+        }
+      }
+    }
+
+    // Grid
+    Item {
+      id: gridArea
+      width: root.gridW
+      height: root.gridH
+
+      Repeater {
+        model: root.weeks * 7
 
         delegate: Rectangle {
           id: cellRect
 
           required property int index
 
-          readonly property int col: index % 10
-          readonly property int row: Math.floor(index / 10)
-          readonly property int state: root.svc && root.svc.dailyGrid.length === 70
-            ? root.svc.dailyGrid[index] : 0
-          readonly property bool isToday: index === root.todayIndex
+          readonly property int col: index % root.weeks
+          readonly property int row: Math.floor(index / root.weeks)
+          readonly property int offset: root.dayOffset(row, col)
+          readonly property int state: root.svc ? root.svc.dayState(offset) : 0
+          readonly property bool isToday: col === root.todayCol && row === root.todayRow
 
-          x: col * (gridArea.cell + root.gap)
-          y: row * (gridArea.cell + root.gap)
-          width: gridArea.cell
-          height: gridArea.cell
-          radius: Style.space(3)
+          x: col * root.step
+          y: row * root.step
+          width: root.cellSize
+          height: root.cellSize
+          radius: 2
           color: {
             if (state === 2) return root.doneGreen
             if (state === 1) return Qt.rgba(root.doneGreen.r, root.doneGreen.g, root.doneGreen.b, 0.35)
@@ -117,14 +161,54 @@ Rectangle {
       }
     }
 
-    // Weekday legend
-    Text {
-      text: "last 10 weeks · Mon → Sun"
-      textFormat: Text.PlainText
-      color: root.fg
-      opacity: 0.35
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
+    // Legend
+    Item {
+      width: parent.width
+      height: Style.space(12)
+
+      Row {
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(4)
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Less"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.4
+          font.family: root.fontFamily
+          font.pixelSize: 9
+        }
+
+        Repeater {
+          model: [
+            Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.07),
+            Qt.rgba(root.doneGreen.r, root.doneGreen.g, root.doneGreen.b, 0.25),
+            Qt.rgba(root.doneGreen.r, root.doneGreen.g, root.doneGreen.b, 0.6),
+            root.doneGreen
+          ]
+
+          delegate: Rectangle {
+            required property var modelData
+            width: root.cellSize - 3
+            height: width
+            radius: 2
+            color: modelData
+            anchors.verticalCenter: parent.verticalCenter
+          }
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "More"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.4
+          font.family: root.fontFamily
+          font.pixelSize: 9
+        }
+      }
     }
   }
 }

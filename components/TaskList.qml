@@ -157,7 +157,9 @@ Rectangle {
           id: rowMa
           anchors.fill: parent
           hoverEnabled: true
-          // Background hover only; clicks land on the checkbox/delete areas.
+          // Hover-only: NoButton lets clicks fall through to the checkbox
+          // and delete areas above.
+          acceptedButtons: Qt.NoButton
         }
       }
     }
