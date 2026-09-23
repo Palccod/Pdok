@@ -41,9 +41,39 @@ Panel {
     if (svc && typeof svc.setGifDir === "function") svc.setGifDir(gifDir)
   }
   onGifDirChanged: pushGifDir()
-  onSvcChanged: pushGifDir()
+  onSvcChanged: {
+    pushGifDir()
+    if (svc && typeof svc.registerPanel === "function") svc.registerPanel(root)
+  }
+
+  // This instance's output, matched against Hyprland's focused monitor when
+  // IPC routes open/close/toggle (see Service.panelForFocused).
+  readonly property string screenName: sidePanel.screen ? sidePanel.screen.name : ""
+
+  Component.onDestruction: {
+    if (svc && typeof svc.unregisterPanel === "function") svc.unregisterPanel(root)
+  }
+
+  // IPC must reach the drawer on the focused monitor, not whichever widget
+  // instance won the ipcTarget registration race.
+  function route(what) {
+    if (svc && typeof svc.toggleOnFocused === "function") {
+      if (what === "open") svc.openOnFocused()
+      else if (what === "close") svc.closeOnFocused()
+      else svc.toggleOnFocused()
+      return
+    }
+    if (what === "open") root.open()
+    else if (what === "close") root.close()
+    else root.toggle()
+  }
 
   property string tab: "daily"
+  // Bumped by requestPicker(); the DailyTab instance in this panel opens the
+  // folder picker on each bump. Per-panel, so IPC can target the focused
+  // monitor's drawer without touching the other one.
+  property int pickerNonce: 0
+  function requestPicker() { root.pickerNonce++ }
   readonly property var tabs: [
     { id: "daily", label: "Daily" },
     { id: "dash", label: "Dash" },
@@ -64,11 +94,11 @@ Panel {
   IpcHandler {
     target: "palccod.pdok"
 
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
+    function open(): void { root.route("open") }
+    function close(): void { root.route("close") }
+    function show(): void { root.route("open") }
+    function hide(): void { root.route("close") }
+    function toggle(): void { root.route("toggle") }
 
     function state(): string {
       return JSON.stringify({
@@ -83,6 +113,9 @@ Panel {
         contentHeight: sidePanel.contentHeight,
         screenW: sidePanel.screenW,
         barW: sidePanel.barW,
+        screen: sidePanel.screen ? sidePanel.screen.name : "",
+        focusedScreen: root.svc && root.svc.focusedScreenName ? root.svc.focusedScreenName() : "",
+        focusedPanelScreen: root.svc && root.svc.panelForFocused && root.svc.panelForFocused() && root.svc.panelForFocused().screenName ? root.svc.panelForFocused().screenName : "",
         gifs: root.svc ? root.svc.gifFiles.length : -1,
         gifDir: root.svc ? root.svc.activeGifDir : "",
         dailyTasks: root.svc ? root.svc.daily.tasks.length : -1,
@@ -100,17 +133,21 @@ Panel {
     }
 
     function setGifDir(dir: string): string {
-      if (!root.svc) return "service unavailable"
-      if (!root.svc.setGifDir(dir))
-        return "invalid path — use an absolute directory (~/... ok), no .."
-      var next = {}
-      var current = root.settings ? root.settings : {}
-      for (var k in current) next[k] = current[k]
-      next.gifDir = String(dir).trim()
-      root.settings = next
-      if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
-        bar.shell.updateEntryInline(root.moduleName, next)
-      return "gifDir=" + root.svc.activeGifDir + " gifs=" + root.svc.gifFiles.length
+      return root.applyGifDir(dir)
+    }
+
+    // Open the drawer (on the focused monitor) on Daily with the picker up.
+    // The nonce targets that panel's own DailyTab, so the other monitor's
+    // instance stays untouched.
+    function pickGifDir(): string {
+      if (root.svc && typeof root.svc.openTabOnFocused === "function") {
+        var p = root.svc.openTabOnFocused("daily")
+        if (p && typeof p.requestPicker === "function") p.requestPicker()
+        return "picker opened"
+      }
+      root.tab = "daily"
+      root.route("open")
+      return "picker opened"
     }
 
     function setTab(tab: string): string {
@@ -118,8 +155,12 @@ Panel {
       var wanted = tab === "alerts" ? "notifications" : tab
       for (var i = 0; i < root.tabs.length; i++) {
         if (root.tabs[i].id === wanted) {
-          root.tab = wanted
-          root.open()
+          if (root.svc && typeof root.svc.openTabOnFocused === "function")
+            root.svc.openTabOnFocused(wanted)
+          else {
+            root.tab = wanted
+            root.route("open")
+          }
           return "tab=" + wanted
         }
       }
@@ -189,6 +230,23 @@ Panel {
     root.settings = next
     if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
       bar.shell.updateEntryInline(root.moduleName, next)
+  }
+
+  // Validate, apply and persist a GIF directory. Shared by the IPC command
+  // and the in-drawer folder picker (whose "use"/"reset" buttons show the
+  // returned status line and close on success — a "gifDir=" reply).
+  function applyGifDir(dir: string): string {
+    if (!svc) return "service unavailable"
+    if (!svc.setGifDir(dir))
+      return "invalid path — use an absolute directory (~/... ok), no .."
+    var next = {}
+    var current = settings ? settings : {}
+    for (var k in current) next[k] = current[k]
+    next.gifDir = String(dir).trim()
+    root.settings = next
+    if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
+      bar.shell.updateEntryInline(root.moduleName, next)
+    return "gifDir=" + svc.activeGifDir + " gifs=" + svc.gifFiles.length
   }
 
   WidgetButton {
@@ -355,6 +413,8 @@ Panel {
           svc: root.svc
           fg: root.foreground
           fontFamily: root.fontFamily
+          applyDir: root.applyGifDir
+          pickerNonce: root.pickerNonce
         }
 
         MediaTab {

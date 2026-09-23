@@ -62,11 +62,21 @@ restart the shell.
 
 ## Use
 
-- **SUPER+Z** toggles the drawer (bound in `~/.config/hypr/bindings.lua`).
+- **SUPER+Z** toggles the drawer (bound in `~/.config/hypr/bindings.lua`). IPC
+  toggles follow keyboard focus: with the laptop screen focused it pops there,
+  with the external screen focused it pops there.
 - **Click the bar button** (outlined card with a filled strip) to toggle the drawer.
 - **Right-click the button** to flip the drawer between the right and left edge.
 - Escape or clicking anywhere outside closes it. Tab / Shift+Tab move between
   bar widgets' panels, like any Omarchy popout.
+
+### Choosing the GIF folder from the UI
+
+On the Daily tab, hover the deck and click the **folder button** (bottom-right
+of the card) — or, when the deck is empty, the "Choose folder…" pill. An
+in-drawer browser opens: navigate with the home/up buttons and the folder
+list, then **Use this folder** (or **Reset** for the default sources). The
+choice is saved to the `gifDir` setting, same as the IPC command.
 
 ### Settings
 
@@ -86,6 +96,7 @@ omarchy-shell palccod.pdok toggle          # open/close/show/hide/toggle
 omarchy-shell palccod.pdok setTab daily    # daily | dash | media | notifications (opens the drawer)
 omarchy-shell palccod.pdok setSide left    # right | left
 omarchy-shell palccod.pdok setGifDir ~/Pictures/gifs   # custom deck folder ("" = default)
+omarchy-shell palccod.pdok pickGifDir     # open the drawer on the focused screen with the folder picker up
 omarchy-shell palccod.pdok markRead        # mark all notifications read
 omarchy-shell palccod.pdok dailyAddTask "Water the plants"
 omarchy-shell palccod.pdok dailyToggleTask 0   # toggle by index

@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import qs.Commons
 
 // Shared per-shell service: notification history (from omarchy.notifications'
@@ -14,6 +15,61 @@ Item {
   property var shell: null
   property var manifest: null
   property bool initialized: false
+
+  // ---- panel registry -------------------------------------------------------
+  // One bar widget per monitor, but the IPC target is claimed by whichever
+  // instance registers first — so SUPER+Z toggled the laptop screen no matter
+  // where focus was. Widgets register here and IPC open/close/toggle route
+  // through the panel on Hyprland's focused monitor.
+  property var panels: []
+
+  function registerPanel(panel) {
+    if (!panel) return
+    var next = root.panels.slice()
+    if (next.indexOf(panel) === -1) next.push(panel)
+    root.panels = next
+  }
+
+  function unregisterPanel(panel) {
+    var next = []
+    for (var i = 0; i < root.panels.length; i++)
+      if (root.panels[i] !== panel) next.push(root.panels[i])
+    root.panels = next
+  }
+
+  function focusedScreenName() {
+    return Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name) : ""
+  }
+
+  function panelForFocused() {
+    var want = focusedScreenName()
+    if (want.length > 0) {
+      for (var i = 0; i < root.panels.length; i++)
+        if (root.panels[i].screenName === want) return root.panels[i]
+    }
+    return root.panels.length > 0 ? root.panels[0] : null
+  }
+
+  function openOnFocused() { var p = panelForFocused(); if (p) p.open() }
+  function closeOnFocused() { var p = panelForFocused(); if (p) p.close() }
+  function toggleOnFocused() { var p = panelForFocused(); if (p) p.toggle() }
+
+  // Switch the focused panel to a tab id and open it; returns that panel so
+  // callers can act on the focused instance specifically (e.g. show the
+  // folder picker). Callers validate the id against their own tabs list
+  // first; an unknown id leaves things alone.
+  function openTabOnFocused(id) {
+    var p = panelForFocused()
+    if (!p) return null
+    for (var i = 0; i < p.tabs.length; i++) {
+      if (p.tabs[i].id === id) {
+        p.tab = id
+        p.open()
+        return p
+      }
+    }
+    return null
+  }
 
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (home + "/.local/state")) + "/omarchy"
@@ -403,7 +459,9 @@ Item {
   // both sources with that one directory.
 
   function isImageName(name) {
-    return /^[A-Za-z0-9][A-Za-z0-9 _.-]*\.(gif|png|jpg|jpeg|webp)$/.test(name)
+    // Parentheses/commas/apostrophes appear constantly in downloaded files
+    // ("200 (1) (10 FPS).gif") — names go into file:// URLs, never a shell.
+    return /^[A-Za-z0-9][A-Za-z0-9 ._(),'!+-]*\.(gif|png|jpg|jpeg|webp)$/.test(name)
   }
 
   // Validate and apply a user-chosen GIF directory. Accepts "" to return to
@@ -420,7 +478,7 @@ Item {
     }
     if (p.charAt(0) === "~") p = home + p.slice(1)
     if (p.charAt(0) !== "/") return false
-    if (!/^[A-Za-z0-9 ._/-]+$/.test(p)) return false
+    if (!/^[A-Za-z0-9 ._(),'!+\/-]+$/.test(p)) return false
     var parts = p.split("/")
     for (var i = 0; i < parts.length; i++)
       if (parts[i] === "..") return false
@@ -431,10 +489,21 @@ Item {
     return true
   }
 
+  // Directory currently listed by gifListProc; a dir change landing while a
+  // listing is in flight queues one relaunch instead of being dropped to
+  // the next 60s timer tick.
+  property string _listedDir: ""
+  property string _queuedListDir: ""
+
   function refreshGifs() {
+    var dir = root.customGifDir !== "" ? root.customGifDir : root.gifsDir
     if (!gifListProc.running) {
-      gifListProc.command = ["/usr/bin/ls", "-1", root.customGifDir !== "" ? root.customGifDir : root.gifsDir]
+      root._queuedListDir = ""
+      root._listedDir = dir
+      gifListProc.command = ["/usr/bin/ls", "-1", dir]
       gifListProc.running = true
+    } else if (dir !== root._listedDir) {
+      root._queuedListDir = dir
     }
     if (root.customGifDir === "" && !gifListProc2.running) {
       gifListProc2.command = ["/usr/bin/ls", "-1", root.dwPhotosDir]
@@ -461,6 +530,14 @@ Item {
 
   Process {
     id: gifListProc
+    onExited: {
+      if (root._queuedListDir !== "" && root._queuedListDir !== root._listedDir) {
+        root._listedDir = root._queuedListDir
+        gifListProc.command = ["/usr/bin/ls", "-1", root._queuedListDir]
+        root._queuedListDir = ""
+        gifListProc.running = true
+      }
+    }
     stdout: StdioCollector {
       onStreamFinished: {
         var mine = []

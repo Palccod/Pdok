@@ -19,6 +19,10 @@ Rectangle {
   property string fontFamily: Style.font.family
   property int intervalMs: 15000
 
+  // Raised when the user asks for the folder picker (folder button on the
+  // card, or the empty-state entry).
+  signal pickRequested()
+
   readonly property int cardCount: Math.min(4, files.length)
   property int index: 0
   readonly property string currentPath: files.length > 0 ? files[index % files.length] : ""
@@ -284,6 +288,35 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
       }
+
+      Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: pickLabel.implicitWidth + Style.space(16)
+        height: pickLabel.implicitHeight + Style.space(8)
+        radius: height / 2
+        color: pickMa.containsMouse ? Style.hoverFill : "transparent"
+        border.width: 1
+        border.color: root.fg
+        opacity: 0.7
+
+        Text {
+          id: pickLabel
+          anchors.centerIn: parent
+          text: "Choose folder…"
+          textFormat: Text.PlainText
+          color: root.fg
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        MouseArea {
+          id: pickMa
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.pickRequested()
+        }
+      }
     }
 
     HoverHandler {
@@ -298,6 +331,37 @@ Rectangle {
       onClicked: function(mouse) {
         if (mouse.x > frontCard.width / 2) root.next()
         else root.prev()
+      }
+    }
+
+    // Folder picker entry, bottom-right of the card on hover.
+    Rectangle {
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      anchors.margins: Style.space(8)
+      width: Style.space(26)
+      height: Style.space(26)
+      radius: height / 2
+      color: pickBtnMa.containsMouse ? Qt.rgba(0, 0, 0, 0.85) : Qt.rgba(0, 0, 0, 0.6)
+      opacity: root.hovered ? 1.0 : 0.0
+      visible: opacity > 0
+      Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+      Text {
+        anchors.centerIn: parent
+        text: "󰉋"
+        textFormat: Text.PlainText
+        color: "#ffffff"
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+
+      MouseArea {
+        id: pickBtnMa
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.pickRequested()
       }
     }
   }

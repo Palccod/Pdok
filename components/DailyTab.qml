@@ -15,6 +15,13 @@ Rectangle {
   property var svc: null
   property color fg: Color.foreground
   property string fontFamily: Style.font.family
+  // Host function(path) -> status line; validates, applies and persists a
+  // picked GIF directory (shared with the setGifDir IPC command).
+  property var applyDir: null
+  // Bumped by the host panel's requestPicker() (IPC pickGifDir) — opens the
+  // folder picker. Only the panel on the focused monitor bumps it.
+  property int pickerNonce: 0
+  onPickerNonceChanged: if (pickerNonce > 0) picker.openFor(root.svc ? root.svc.activeGifDir : "")
 
   Timer {
     id: notesSaveTimer
@@ -42,6 +49,7 @@ Rectangle {
         dirLabel: root.svc ? root.svc.activeGifDir : ""
         fg: root.fg
         fontFamily: root.fontFamily
+        onPickRequested: picker.openFor(root.svc ? root.svc.activeGifDir : "")
       }
 
       // Streak dashboard
@@ -210,5 +218,15 @@ Rectangle {
         }
       }
     }
+  }
+
+  // Folder picker overlay — covers the tab, above the flickable content.
+  DirPicker {
+    id: picker
+    anchors.fill: parent
+    svc: root.svc
+    fg: root.fg
+    fontFamily: root.fontFamily
+    applyDir: root.applyDir
   }
 }

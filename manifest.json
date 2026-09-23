@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "palccod.pdok",
   "name": "Pdok",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "palccod",
   "license": "MIT",
   "description": "Side notch dashboard: system metrics, media controls, and notification history in a drawer on the screen edge.",
