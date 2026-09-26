@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import qs.Commons
+import "bridge" as PdokBridge
 
 // Shared per-shell service: notification history (from omarchy.notifications'
 // on-disk history), read/unread tracking, and slow system metrics sampling.
@@ -148,6 +149,10 @@ Item {
   property string _batAcPath: ""
 
   Component.onCompleted: {
+    // Publish for widgets hosted by replacement bars (ruixen.bar etc.),
+    // whose `bar.shell` facade cannot resolve plugin services. See
+    // bridge/Bridge.qml; the host facade stays the primary path.
+    PdokBridge.Bridge.service = root
     mkdirProc.running = true
     powerListProc.running = true
     root.refresh()
@@ -155,6 +160,10 @@ Item {
     root.sampleMetrics()
     root.sampleDisk()
   }
+
+  // Unpublish so a widget falling back to the bridge never binds to a
+  // dying instance.
+  Component.onDestruction: if (PdokBridge.Bridge.service === root) PdokBridge.Bridge.service = null
   function refresh() {
     if (listProc.running) return
     listProc.command = ["/usr/bin/ls", "-1t", root.historyDir]

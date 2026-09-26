@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "bridge" as PdokBridge
 
 import "components"
 
@@ -22,7 +23,18 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // Shared per-shell service: notification history + metrics sampling.
-  readonly property var svc: bar && bar.shell ? bar.shell.serviceFor("palccod.pdok") : null
+  // Primary path: the bar host's scoped facade — the first-party bar scopes
+  // it to this plugin, so serviceFor() reaches our own live service.
+  // Fallback: the engine-wide bridge singleton. Replacement bars (e.g.
+  // ruixen.bar) are handed a facade whose serviceFor() is a deliberate null
+  // stub — Omarchy never exposes service resolution to them — so widgets
+  // they host would otherwise never see the service. The binding
+  // re-evaluates on its own when the service publishes (or is torn down).
+  readonly property var svc: {
+    var viaHost = bar && bar.shell && typeof bar.shell.serviceFor === "function"
+      ? bar.shell.serviceFor("palccod.pdok") : null
+    return viaHost || PdokBridge.Bridge.service
+  }
 
   // Per-widget settings (inline shell.json entry): "side" (left|right),
   // "width" (drawer px, 280–640), "gifDir" (absolute path or ~/-prefixed;

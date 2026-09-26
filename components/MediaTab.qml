@@ -27,9 +27,15 @@ Rectangle {
     return players.length > 0 ? players[0] : null
   }
 
-  // omarchy.media's active player, when available
+  // omarchy.media's active player, when available. Replacement bars (e.g.
+  // ruixen.bar) hand widgets a facade whose serviceFor() is a deliberate
+  // null stub, but first-party services stay reachable through the
+  // allowlisted firstPartyServiceFor() — omarchy.media is on that list.
   readonly property var mediaService: shell && shell.serviceFor
-    ? shell.serviceFor("omarchy.media") : null
+    ? (shell.serviceFor("omarchy.media")
+       || (typeof shell.firstPartyServiceFor === "function"
+           ? shell.firstPartyServiceFor("omarchy.media") : null))
+    : null
   readonly property var activePlayer: mediaService
     ? mediaService.activePlayer : directPlayer
 
