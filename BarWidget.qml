@@ -88,7 +88,7 @@ Panel {
   function requestPicker() { root.pickerNonce++ }
   readonly property var tabs: [
     { id: "daily", label: "Daily" },
-    { id: "dash", label: "Dash" },
+    { id: "work", label: "Work" },
     { id: "media", label: "Media" },
     { id: "notifications", label: "Notifications" }
   ]
@@ -100,6 +100,7 @@ Panel {
     if (opened && svc) {
       svc.refresh()
       svc.refreshGifs()
+      svc.refreshGithub()
     }
   }
 
@@ -163,8 +164,9 @@ Panel {
     }
 
     function setTab(tab: string): string {
-      // "alerts" kept as an alias for the pre-rename tab id.
-      var wanted = tab === "alerts" ? "notifications" : tab
+      // "alerts" kept as an alias for the pre-rename tab id, "dash" for the
+      // pre-rename system-monitor tab (now Work).
+      var wanted = tab === "alerts" ? "notifications" : (tab === "dash" ? "work" : tab)
       for (var i = 0; i < root.tabs.length; i++) {
         if (root.tabs[i].id === wanted) {
           if (root.svc && typeof root.svc.openTabOnFocused === "function")
@@ -411,10 +413,11 @@ Panel {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
 
-        DashTab {
+        WorkTab {
           anchors.fill: parent
-          visible: root.tab === "dash"
+          visible: root.tab === "work"
           svc: root.svc
+          bar: root.bar
           fg: root.foreground
           fontFamily: root.fontFamily
         }

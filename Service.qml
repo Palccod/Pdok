@@ -125,28 +125,29 @@ Item {
     return s.trim()
   }
 
-  // ---- system metrics ------------------------------------------------------
-  property real cpuPercent: 0
-  property real memPercent: 0
-  property string memText: ""
-  property real netDownKb: 0
-  property real netUpKb: 0
-  property string uptimeText: ""
-  property bool hasBattery: false
-  property int batteryPercent: 0
-  property bool batteryCharging: false
-  property real diskPercent: 0
-  property string diskText: ""
+  // ---- github dashboard ------------------------------------------------------
+  // Two sources. The contribution heatmap reuses the dev.git plugin: its
+  // collector (already authed through `gh`) writes
+  // ~/.local/state/omarchy/git/overview.json — we trigger it and read the
+  // state file. Recent commits come straight from the GitHub API through the
+  // authenticated gh CLI. Last payload is cached under the state dir so the
+  // tab renders instantly on shell start.
+  property string ghLogin: ""
+  property string ghName: ""
+  property var ghCommits: []
+  property string ghUpdatedAt: ""
+  property string ghError: ""
+  property bool ghRefreshing: false
 
-  property double _cpuPrevIdle: -1
-  property double _cpuPrevTotal: 0
-  property double _netPrevRx: -1
-  property double _netPrevTx: 0
+  property var ghCalendar: ({})
 
-  // Battery device paths, filled in after whitelisting the contents of
-  // /sys/class/power_supply (only BAT* and AC* names are accepted).
-  property string _batCapPath: ""
-  property string _batAcPath: ""
+  readonly property string gitOverviewPath: stateDir + "/git/overview.json"
+  // dev.git's collector, found relative to this plugin:
+  // plugins/palccod.pdok/../dev.git/bin/gitwork
+  readonly property string gitworkPath: {
+    var url = String(Qt.resolvedUrl("../dev.git/bin/gitwork"))
+    return url.indexOf("file://") === 0 ? decodeURIComponent(url.substring(7)) : url
+  }
 
   Component.onCompleted: {
     // Publish for widgets hosted by replacement bars (ruixen.bar etc.),
@@ -154,11 +155,9 @@ Item {
     // bridge/Bridge.qml; the host facade stays the primary path.
     PdokBridge.Bridge.service = root
     mkdirProc.running = true
-    powerListProc.running = true
     root.refresh()
     root.refreshGifs()
-    root.sampleMetrics()
-    root.sampleDisk()
+    root.refreshGithub()
   }
 
   // Unpublish so a widget falling back to the bridge never binds to a
@@ -652,207 +651,235 @@ Item {
     onTriggered: root.refresh()
   }
 
-  // ---- system metrics sampling ---------------------------------------------
+  // ---- github dashboard sources ---------------------------------------------
 
   Timer {
-    interval: 2000
+    interval: 15 * 60 * 1000
     running: true
     repeat: true
-    onTriggered: root.sampleMetrics()
+    triggeredOnStart: false
+    onTriggered: root.refreshGithub()
   }
 
-  Timer {
-    interval: 30000
-    running: true
-    repeat: true
-    onTriggered: root.sampleDisk()
+  function refreshGithub() {
+    if (ghUserProc.running || ghEventsProc.running || gitworkProc.running) return
+    root.ghRefreshing = true
+    ghUserProc.running = true
+    root.runGitwork()
   }
 
-  function sampleMetrics() {
-    if (!statProc.running) statProc.running = true
-    if (!memProc.running) memProc.running = true
-    if (!netProc.running) netProc.running = true
-    if (!upProc.running) upProc.running = true
-    if (root.hasBattery && !batProc.running) batProc.running = true
-  }
-
-  function sampleDisk() {
-    if (!dfProc.running) dfProc.running = true
+  // The contribution heatmap: run dev.git's collector against its own state
+  // file, then let the FileView below pick up whatever it wrote.
+  function runGitwork() {
+    if (root.gitworkPath === "" || gitworkProc.running) return
+    gitworkProc.command = [root.gitworkPath, "-output", root.gitOverviewPath]
+    gitworkProc.running = true
   }
 
   Process {
-    id: statProc
-    command: ["/usr/bin/cat", "/proc/stat"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var line = ""
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          if (lines[i].indexOf("cpu ") === 0) { line = lines[i]; break }
-        }
-        if (line.length === 0) return
-        var parts = line.split(/\s+/)
-        var idle = 0, total = 0
-        for (var j = 1; j < parts.length; j++) {
-          var v = Number(parts[j])
-          if (!isFinite(v)) continue
-          total += v
-          if (j === 4 || j === 5) idle += v  // idle + iowait
-        }
-        if (total <= 0) return
-        if (root._cpuPrevIdle >= 0 && total > root._cpuPrevTotal) {
-          var dTotal = total - root._cpuPrevTotal
-          var dIdle = idle - root._cpuPrevIdle
-          var pct = (1 - dIdle / dTotal) * 100
-          root.cpuPercent = Math.min(100, Math.max(0, pct))
-        }
-        root._cpuPrevIdle = idle
-        root._cpuPrevTotal = total
+    id: gitworkProc
+    stderr: StdioCollector { waitForEnd: true }
+    // The watcher may not have armed if the file did not exist yet; reload
+    // once the collector has had its chance to write.
+    onExited: Qt.callLater(gitOverviewFile.reload)
+  }
+
+  FileView {
+    id: gitOverviewFile
+    path: root.gitOverviewPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.parseGitOverview(text())
+    onLoadFailed: root.ghCalendar = ({})
+  }
+
+  function parseGitOverview(content) {
+    try {
+      var parsed = JSON.parse(String(content || ""))
+      var provs = parsed && Array.isArray(parsed.providers) ? parsed.providers : []
+      var cal = ({})
+      for (var i = 0; i < provs.length; i++) {
+        var p = provs[i] || {}
+        if (String(p.kind) !== "github") continue
+        cal = p.calendar || {}
+        // The collector resolves identity too; fill blanks from it.
+        if (root.ghLogin === "") root.ghLogin = String(p.username || "")
+        if (root.ghName === "") root.ghName = String(p.displayName || "")
+        break
       }
+      var counts = Array.isArray(cal.counts) ? cal.counts : []
+      root.ghCalendar = {
+        supported: cal.supported === true && counts.length > 0,
+        start: String(cal.start || ""),
+        end: String(cal.end || ""),
+        weeks: Number(cal.weeks || 0),
+        counts: counts,
+        levels: Array.isArray(cal.levels) ? cal.levels : [],
+        monthStarts: Array.isArray(cal.monthStarts) ? cal.monthStarts : [],
+        total: Number(cal.total || 0),
+        current: Number(cal.current || 0),
+        longest: Number(cal.longest || 0),
+        today: Number(cal.today || 0),
+        max: Number(cal.max || 0)
+      }
+    } catch (e) {
+      root.ghCalendar = ({})
+    }
+  }
+
+  // Recent commits: gh -> whoami -> public events, filtered to pushes.
+  Process {
+    id: ghUserProc
+    command: ["/usr/sbin/gh", "api", "user", "--jq", ".login + \"\\t\" + (.name // \"\")"]
+    stderr: StdioCollector {
+      waitForEnd: true
+      property string errText: ""
+      onStreamFinished: errText = text.trim()
+    }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var parts = text.trim().split("\t")
+        if (parts.length < 1 || parts[0] === "") {
+          root.ghRefreshing = false
+          root.ghError = "gh: no login — run `gh auth login`"
+          return
+        }
+        if (!/^[A-Za-z0-9-]{1,39}$/.test(parts[0])) {
+          root.ghRefreshing = false
+          root.ghError = "gh: unexpected login"
+          return
+        }
+        root.ghLogin = parts[0]
+        root.ghName = parts.length > 1 ? parts[1] : ""
+        root.ghError = ""
+        // ghLogin is regex-validated above, so building the argv here is safe.
+        // The public events feed omits commit details, so go through commit
+        // search instead: own pushes across all repos, newest first, last 30d.
+        var since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+        ghEventsProc.command = ["/usr/sbin/gh", "api",
+          "search/commits?q=author:" + root.ghLogin + "+committer-date:%3E" + since
+            + "&sort=committer-date&order=desc&per_page=20"]
+        ghEventsProc.running = true
+      }
+    }
+    onExited: function(exitCode) {
+      // Whatever happened, the spinner must not stick; the collector may
+      // already have filled ghLogin, so failure and success reset alike.
+      if (exitCode !== 0) {
+        var lines = ghUserProc.stderr.data.split("\n").filter(function(l) { return l !== "" })
+        root.ghError = lines.length > 0
+          ? "gh: " + lines[lines.length - 1].slice(0, 120)
+          : "gh: user lookup failed"
+      }
+      root.ghRefreshing = false
     }
   }
 
   Process {
-    id: memProc
-    command: ["/usr/bin/cat", "/proc/meminfo"]
+    id: ghEventsProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      property string errText: ""
+      onStreamFinished: errText = text.trim()
+    }
     stdout: StdioCollector {
-      onStreamFinished: {
-        var totalKb = 0, availKb = 0
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          if (lines[i].indexOf("MemTotal:") === 0)
-            totalKb = Number(lines[i].replace(/[^0-9]/g, ""))
-          else if (lines[i].indexOf("MemAvailable:") === 0)
-            availKb = Number(lines[i].replace(/[^0-9]/g, ""))
+      waitForEnd: true
+      onStreamFinished: root.parseGhEvents(text)
+    }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        var lines = ghEventsProc.stderr.data.split("\n").filter(function(l) { return l !== "" })
+        root.ghError = lines.length > 0
+          ? "gh: " + lines[lines.length - 1].slice(0, 120)
+          : "gh: events unavailable"
+      }
+      root.ghRefreshing = false
+    }
+  }
+
+  function parseGhEvents(raw) {
+    root.ghRefreshing = false
+    var rows = []
+    var seen = {}
+    try {
+      var res = JSON.parse(String(raw || "{}"))
+      var items = Array.isArray(res.items) ? res.items : []
+      for (var i = 0; i < items.length && rows.length < 20; i++) {
+        var it = items[i] || {}
+        var sha = String(it.sha || "")
+        if (!/^[0-9a-f]{7,40}$/.test(sha)) continue
+        var short = sha.slice(0, 7)
+        if (seen[short]) continue
+        seen[short] = true
+        var repo = it.repository && it.repository.full_name
+          ? String(it.repository.full_name) : ""
+        if (repo === "" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) continue
+        var commit = it.commit || {}
+        var msg = String(commit.message || "").split("\n")[0]
+        if (msg.length > 200) msg = msg.slice(0, 200)
+        var time = commit.author && commit.author.date ? String(commit.author.date) : ""
+        rows.push({
+          repo: repo,
+          sha: short,
+          message: msg,
+          time: time,
+          url: "https://github.com/" + repo + "/commit/" + sha
+        })
+      }
+      root.ghCommits = rows
+      root.ghUpdatedAt = new Date().toISOString()
+      root.ghError = ""
+      root.persistGithub()
+    } catch (err) {
+      root.ghError = "GitHub: " + String(err && err.message ? err.message : err)
+    }
+  }
+
+  FileView {
+    id: ghCacheFile
+    path: root.stateDir + "/pdok-github.json"
+    atomicWrites: true
+    watchChanges: false
+    printErrors: false
+    onLoaded: root.restoreGithub(text())
+    onLoadFailed: root.ghRefreshing = false
+  }
+
+  function persistGithub() {
+    ghCacheFile.setText(JSON.stringify({
+      ghLogin: root.ghLogin,
+      ghName: root.ghName,
+      ghUpdatedAt: root.ghUpdatedAt,
+      ghCommits: root.ghCommits
+    }))
+  }
+
+  function restoreGithub(content) {
+    try {
+      var d = JSON.parse(String(content || "{}"))
+      if (!d || typeof d !== "object") return
+      if (/^[A-Za-z0-9-]{1,39}$/.test(String(d.ghLogin || ""))) root.ghLogin = String(d.ghLogin)
+      if (typeof d.ghName === "string") root.ghName = d.ghName.slice(0, 100)
+      if (typeof d.ghUpdatedAt === "string") root.ghUpdatedAt = d.ghUpdatedAt
+      if (Array.isArray(d.ghCommits)) {
+        var rows = []
+        for (var i = 0; i < d.ghCommits.length && rows.length < 20; i++) {
+          var r = d.ghCommits[i] || {}
+          if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(r.repo || ""))) continue
+          if (!/^[0-9a-f]{7,40}$/.test(String(r.sha || ""))) continue
+          rows.push({
+            repo: String(r.repo),
+            sha: String(r.sha).slice(0, 7),
+            message: String(r.message || "").slice(0, 200),
+            time: String(r.time || ""),
+            url: "https://github.com/" + String(r.repo) + "/commit/" + String(r.sha)
+          })
         }
-        if (!(totalKb > 0) || !(availKb >= 0)) return
-        var usedKb = Math.max(0, totalKb - availKb)
-        root.memPercent = Math.min(100, Math.max(0, (usedKb / totalKb) * 100))
-        root.memText = root.fmtGb(usedKb) + " / " + root.fmtGb(totalKb)
+        root.ghCommits = rows
       }
-    }
-  }
-
-  Process {
-    id: netProc
-    command: ["/usr/bin/cat", "/proc/net/dev"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var rx = 0, tx = 0
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var idx = lines[i].indexOf(":")
-          if (idx < 0) continue
-          var iface = lines[i].slice(0, idx).trim()
-          if (iface === "lo" || iface.length === 0) continue
-          var fields = lines[i].slice(idx + 1).trim().split(/\s+/)
-          if (fields.length < 9) continue
-          var r = Number(fields[0]), t = Number(fields[8])
-          if (isFinite(r)) rx += r
-          if (isFinite(t)) tx += t
-        }
-        if (root._netPrevRx >= 0) {
-          // Sample period is the 2s metrics timer; negative deltas (counter
-          // reset, interface swapped) fall back to zero for one tick.
-          root.netDownKb = Math.max(0, (rx - root._netPrevRx) / 2 / 1024)
-          root.netUpKb = Math.max(0, (tx - root._netPrevTx) / 2 / 1024)
-        }
-        root._netPrevRx = rx
-        root._netPrevTx = tx
-      }
-    }
-  }
-
-  Process {
-    id: upProc
-    command: ["/usr/bin/cat", "/proc/uptime"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var secs = Number(text.trim().split(/\s+/)[0])
-        if (!isFinite(secs) || secs <= 0) return
-        root.uptimeText = root.fmtUptime(Math.floor(secs))
-      }
-    }
-  }
-
-  // Battery: one cat for both capacity and AC-online, two lines out.
-  Process {
-    id: batProc
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var lines = text.trim().split("\n")
-        var cap = Number(lines[0])
-        var ac = Number(lines[1])
-        if (isFinite(cap)) root.batteryPercent = Math.min(100, Math.max(0, Math.round(cap)))
-        if (isFinite(ac)) root.batteryCharging = ac > 0
-      }
-    }
-  }
-
-  // Whitelist power supply names — no separators, fixed prefixes only.
-  Process {
-    id: powerListProc
-    command: ["/usr/bin/ls", "-1", "/sys/class/power_supply"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var name = lines[i].trim()
-          if (/^BAT[0-9]+$/.test(name) && root._batCapPath.length === 0) {
-            root._batCapPath = "/sys/class/power_supply/" + name + "/capacity"
-            root.hasBattery = true
-          } else if (/^AC[0-9A-Za-z]*$/.test(name) && root._batAcPath.length === 0) {
-            root._batAcPath = "/sys/class/power_supply/" + name + "/online"
-          }
-        }
-        if (root.hasBattery && root._batAcPath.length > 0)
-          batProc.command = ["/usr/bin/cat", root._batCapPath, root._batAcPath]
-        else if (root.hasBattery)
-          batProc.command = ["/usr/bin/cat", root._batCapPath]
-        else
-          root.hasBattery = false
-      }
-    }
-  }
-
-  Process {
-    id: dfProc
-    command: ["/usr/bin/df", "-k", "-P", "/"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var lines = text.trim().split("\n")
-        if (lines.length < 2) return
-        var fields = lines[1].trim().split(/\s+/)
-        if (fields.length < 5) return
-        var blocks = Number(fields[1]), used = Number(fields[2])
-        if (!(blocks > 0) || !(used >= 0)) return
-        root.diskPercent = Math.min(100, Math.max(0, (used / blocks) * 100))
-        root.diskText = root.fmtGb(used * 1024) + " / " + root.fmtGb(blocks * 1024)
-      }
-    }
+    } catch (e) { /* stale cache — first fetch overwrites it */ }
   }
 
   // ---- formatting helpers (shared with the tabs) ---------------------------
-
-  function fmtGb(kb) {
-    var gb = kb / (1024 * 1024)
-    if (gb >= 100) return Math.round(gb) + " GB"
-    if (gb >= 10) return gb.toFixed(1) + " GB"
-    return gb.toFixed(2) + " GB"
-  }
-
-  function fmtKb(kbPerSec) {
-    if (kbPerSec >= 1024) return (kbPerSec / 1024).toFixed(1) + " MB/s"
-    if (kbPerSec >= 10) return Math.round(kbPerSec) + " KB/s"
-    return kbPerSec.toFixed(1) + " KB/s"
-  }
-
-  function fmtUptime(secs) {
-    var d = Math.floor(secs / 86400)
-    var h = Math.floor((secs % 86400) / 3600)
-    var m = Math.floor((secs % 3600) / 60)
-    if (d > 0) return d + "d " + h + "h"
-    if (h > 0) return h + "h " + m + "m"
-    return m + "m"
-  }
 }
