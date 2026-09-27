@@ -618,85 +618,115 @@ Rectangle {
         font.pixelSize: Style.font.caption
       }
 
-      Repeater {
-        model: root.svc ? root.svc.ghCommits : []
+      // Commit list: five rows visible, the rest scroll in the pocket so
+      // the tab keeps breathing room at the bottom of the drawer.
+      Item {
+        id: commitsArea
+        width: parent.width
+        // Five uniform rows + the gaps between them; measured, not guessed.
+        readonly property real rowH: commitsRepeater.count > 0 && commitsRepeater.itemAt(0)
+          ? commitsRepeater.itemAt(0).height : 0
+        height: Math.min(commitsFlick.contentHeight,
+          5 * rowH + 4 * commitsCol.spacing)
 
-        delegate: Item {
-          id: commitRow
-
-          required property var modelData
-
-          width: parent.width
-          height: commitCol.implicitHeight + Style.space(8)
-
-          readonly property color rowFg: root.fg
+        Flickable {
+          id: commitsFlick
+          anchors.fill: parent
+          contentWidth: width
+          contentHeight: commitsCol.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentHeight > height
 
           Column {
-            id: commitCol
-            anchors.left: parent.left
-            anchors.leftMargin: Style.space(10)
-            anchors.right: rowAge.left
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            id: commitsCol
+            width: parent.width
+            spacing: Style.space(6)
 
-            Row {
-              width: parent.width
-              spacing: Style.space(8)
+            Repeater {
+              id: commitsRepeater
+              model: root.svc ? root.svc.ghCommits : []
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.glyphCommit
-                color: root.accent
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - Style.space(8) - Style.font.body
-                text: commitRow.modelData.message
-                textFormat: Text.PlainText
-                color: root.fg
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                elide: Text.ElideRight
+              delegate: Item {
+                id: commitRow
+
+                required property var modelData
+
+                width: parent.width
+                height: commitCol.implicitHeight + Style.space(8)
+
+                readonly property color rowFg: root.fg
+
+                Column {
+                  id: commitCol
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(10)
+                  anchors.right: rowAge.left
+                  anchors.rightMargin: Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(2)
+
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(8)
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.glyphCommit
+                      color: root.accent
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: parent.width - Style.space(8) - Style.font.body
+                      text: commitRow.modelData.message
+                      textFormat: Text.PlainText
+                      color: root.fg
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      elide: Text.ElideRight
+                    }
+                  }
+
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(8)
+
+                    Item { width: Style.font.body; height: 1 }
+
+                    Text {
+                      width: parent.width - Style.space(8) - Style.font.body
+                      text: commitRow.modelData.repo + "  ·  " + commitRow.modelData.sha
+                      textFormat: Text.PlainText
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideLeft
+                    }
+                  }
+                }
+
+                Text {
+                  id: rowAge
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.timeAgo(commitRow.modelData.time, Date.now())
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.openUrl(commitRow.modelData.url)
+                }
               }
             }
-
-            Row {
-              width: parent.width
-              spacing: Style.space(8)
-
-              Item { width: Style.font.body; height: 1 }
-
-              Text {
-                width: parent.width - Style.space(8) - Style.font.body
-                text: commitRow.modelData.repo + "  ·  " + commitRow.modelData.sha
-                textFormat: Text.PlainText
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideLeft
-              }
-            }
-          }
-
-          Text {
-            id: rowAge
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.timeAgo(commitRow.modelData.time, Date.now())
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.openUrl(commitRow.modelData.url)
           }
         }
       }
