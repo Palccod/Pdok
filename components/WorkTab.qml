@@ -27,8 +27,14 @@ Rectangle {
   // Nerd Font glyphs, same set the Git panel draws with.
   readonly property string glyphCommit: ""
   readonly property string glyphRepo: ""
+  readonly property string glyphRequest: ""
+  readonly property string glyphIssue: ""
   readonly property string glyphStreak: "󰈸"
   readonly property string glyphRefresh: "󰑐"
+
+  readonly property color urgent: Color.urgent
+
+  readonly property var openWork: svc ? svc.ghOpenWork : ({ review: 0, assignedPrs: 0, assignedIssues: 0, authoredIssues: 0, authoredPrs: [] })
 
   // Identity shown in the hero line: "Name · @login", or just one of them.
   readonly property string heroIdentity: {
@@ -364,6 +370,164 @@ Rectangle {
         }
       }
 
+      // Section: open work — the four dev.git count cards
+      Column {
+        width: parent.width
+        spacing: Style.space(8)
+        visible: yearGraph.visible
+
+        PanelSectionHeader {
+          width: parent.width
+          text: "OPEN WORK"
+          foreground: root.fg
+          fontFamily: root.fontFamily
+        }
+
+        Grid {
+          width: parent.width
+          columns: 2
+          columnSpacing: Style.space(8)
+          rowSpacing: Style.space(8)
+
+          readonly property real cellWidth: (width - columnSpacing) / 2
+
+          WorkStat {
+            width: parent.cellWidth
+            value: root.openWork.review
+            label: "AWAITING REVIEW"
+            glyph: root.glyphRequest
+            urgent: value > 0
+            onActivated: root.openUrl("https://github.com/pulls?q=is%3Aopen+is%3Apr+review-requested%3A%40me")
+          }
+
+          WorkStat {
+            width: parent.cellWidth
+            value: root.openWork.assignedPrs
+            label: "ASSIGNED PRS"
+            glyph: root.glyphRequest
+            urgent: value > 0
+            onActivated: root.openUrl("https://github.com/pulls?q=is%3Aopen+is%3Apr+assignee%3A%40me")
+          }
+
+          WorkStat {
+            width: parent.cellWidth
+            value: root.openWork.assignedIssues
+            label: "ASSIGNED ISSUES"
+            glyph: root.glyphIssue
+            urgent: value > 0
+            onActivated: root.openUrl("https://github.com/issues?q=is%3Aopen+is%3Aissue+assignee%3A%40me")
+          }
+
+          WorkStat {
+            width: parent.cellWidth
+            value: root.openWork.authoredIssues
+            label: "AUTHORED ISSUES"
+            glyph: root.glyphIssue
+            urgent: value > 0
+            onActivated: root.openUrl("https://github.com/issues?q=is%3Aopen+is%3Aissue+author%3A%40me")
+          }
+        }
+      }
+
+      // Section: your open PRs — the collector's authored-PR queue
+      Column {
+        width: parent.width
+        spacing: Style.space(6)
+        visible: yearGraph.visible
+
+        PanelSectionHeader {
+          width: parent.width
+          text: "YOUR OPEN PRS"
+          foreground: root.fg
+          fontFamily: root.fontFamily
+        }
+
+        Repeater {
+          model: root.openWork.authoredPrs || []
+
+          delegate: Item {
+            id: prRow
+
+            required property var modelData
+
+            width: parent.width
+            height: prCol.implicitHeight + Style.space(8)
+
+            Column {
+              id: prCol
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(10)
+              anchors.right: prAge.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              Row {
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: prRow.modelData.draft ? root.glyphIssue : root.glyphRequest
+                  color: root.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width - Style.space(8) - Style.font.body
+                  text: (prRow.modelData.draft ? "DRAFT · " : "")
+                    + prRow.modelData.title + "  #" + prRow.modelData.number
+                  textFormat: Text.PlainText
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  elide: Text.ElideRight
+                }
+              }
+
+              Text {
+                width: parent.width - Style.space(8) - Style.font.body
+                text: prRow.modelData.repository
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideLeft
+              }
+            }
+
+            Text {
+              id: prAge
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.timeAgo(prRow.modelData.updatedAt, Date.now())
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openUrl(prRow.modelData.url)
+            }
+          }
+        }
+
+        Text {
+          width: parent.width
+          visible: (root.openWork.authoredPrs || []).length === 0
+          text: "No open pull requests."
+          textFormat: Text.PlainText
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+
       // Section: recent commits
       Item {
         width: parent.width
@@ -498,6 +662,76 @@ Rectangle {
           }
         }
       }
+    }
+  }
+
+  // dev.git's StatBox, same shape: bordered hover card, big number, caption
+  // label, glyph tinted urgent when the count is non-zero.
+  component WorkStat: CursorSurface {
+    id: statBox
+
+    property int value: 0
+    property string label: ""
+    property string glyph: ""
+    property bool urgent: false
+    signal activated()
+
+    foreground: root.fg
+    hasCursor: boxHover.containsMouse
+    bordered: true
+    implicitHeight: Math.max(Style.space(48),
+      boxValue.implicitHeight + boxLabel.implicitHeight + Style.space(14))
+
+    Row {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      spacing: Style.space(9)
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: statBox.glyph
+        visible: text !== ""
+        color: statBox.urgent ? root.urgent : root.alpha(root.fg, 0.55)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.iconLarge
+      }
+
+      Column {
+        width: parent.width - parent.spacing - Style.font.iconLarge
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(1)
+
+        Text {
+          id: boxValue
+          width: parent.width
+          text: String(statBox.value)
+          color: statBox.urgent ? root.urgent : root.fg
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          font.bold: true
+        }
+
+        Text {
+          id: boxLabel
+          width: parent.width
+          text: statBox.label
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+      }
+    }
+
+    MouseArea {
+      id: boxHover
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: statBox.activated()
     }
   }
 }

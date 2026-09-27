@@ -141,6 +141,10 @@ Item {
 
   property var ghCalendar: ({})
 
+  // dev.git's queues, flattened for the Work tab: the four OPEN WORK counts
+  // plus the user's own open PRs (which may live in other people's repos).
+  property var ghOpenWork: ({ review: 0, assignedPrs: 0, assignedIssues: 0, authoredIssues: 0, authoredPrs: [] })
+
   readonly property string gitOverviewPath: stateDir + "/git/overview.json"
   // dev.git's collector, found relative to this plugin:
   // plugins/palccod.pdok/../dev.git/bin/gitwork
@@ -721,6 +725,38 @@ Item {
         longest: Number(cal.longest || 0),
         today: Number(cal.today || 0),
         max: Number(cal.max || 0)
+      }
+      // Open-work counts and the authored-PR queue, straight from the
+      // collector's totals; the PR list is whitelisted field by field.
+      var totals = p.totals && typeof p.totals === "object" ? p.totals : {}
+      var cnt = function(k) {
+        var v = Math.floor(Number(totals[k]))
+        return isFinite(v) && v > 0 ? v : 0
+      }
+      var rawPrs = Array.isArray(p.authoredPrs) ? p.authoredPrs : []
+      var prRows = []
+      for (var j = 0; j < rawPrs.length && prRows.length < 10; j++) {
+        var it = rawPrs[j] || {}
+        var repo = String(it.repository || "")
+        var num = Math.floor(Number(it.number))
+        if (repo === "" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) continue
+        if (!isFinite(num) || num <= 0) continue
+        prRows.push({
+          number: num,
+          title: String(it.title || "").slice(0, 160),
+          repository: repo,
+          url: /^https:\/\/github\.com\//.test(String(it.url || ""))
+            ? String(it.url) : "https://github.com/" + repo + "/pull/" + num,
+          updatedAt: String(it.updatedAt || ""),
+          draft: it.draft === true
+        })
+      }
+      root.ghOpenWork = {
+        review: cnt("reviewRequests"),
+        assignedPrs: cnt("assignedPrs"),
+        assignedIssues: cnt("assignedIssues"),
+        authoredIssues: cnt("authoredIssues"),
+        authoredPrs: prRows
       }
     } catch (e) {
       root.ghCalendar = ({})
