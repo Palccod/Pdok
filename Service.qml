@@ -703,7 +703,7 @@ Item {
     watchChanges: true
     printErrors: false
     onLoaded: root.parseGitOverview(text())
-    onLoadFailed: root.ghCalendar = ({})
+    onLoadFailed: { /* keep the last good snapshot */ }
   }
 
   function parseGitOverview(content) {
@@ -714,6 +714,10 @@ Item {
       for (var i = 0; i < provs.length; i++) {
         var p = provs[i] || {}
         if (String(p.kind) !== "github") continue
+        // A failed run (network blip) overwrites the state file with a
+        // not-ready record; keep the last good snapshot instead of
+        // regressing the whole tab until the next successful run.
+        if (p.ready !== true) return
         cal = p.calendar || {}
         // The collector resolves identity too; fill blanks from it.
         if (root.ghLogin === "") root.ghLogin = String(p.username || "")
@@ -767,8 +771,9 @@ Item {
         authoredIssues: cnt("authoredIssues"),
         authoredPrs: prRows
       }
+      root.persistGithub()
     } catch (e) {
-      root.ghCalendar = ({})
+      // Malformed file: keep whatever good data is already in memory.
     }
   }
 
@@ -897,7 +902,9 @@ Item {
       ghLogin: root.ghLogin,
       ghName: root.ghName,
       ghUpdatedAt: root.ghUpdatedAt,
-      ghCommits: root.ghCommits
+      ghCommits: root.ghCommits,
+      ghCalendar: root.ghCalendar,
+      ghOpenWork: root.ghOpenWork
     }))
   }
 
@@ -925,6 +932,23 @@ Item {
           })
         }
         root.ghCommits = rows
+      }
+      // Last good dashboard snapshot: only used while the live overview
+      // cannot provide one (failed collector run, file missing).
+      var cal = d.ghCalendar
+      if (cal && typeof cal === "object" && cal.supported === true
+          && Array.isArray(cal.counts) && cal.counts.length > 0) {
+        root.ghCalendar = cal
+      }
+      var w = d.ghOpenWork
+      if (w && typeof w === "object") {
+        root.ghOpenWork = {
+          review: Math.max(0, Math.floor(Number(w.review) || 0)),
+          assignedPrs: Math.max(0, Math.floor(Number(w.assignedPrs) || 0)),
+          assignedIssues: Math.max(0, Math.floor(Number(w.assignedIssues) || 0)),
+          authoredIssues: Math.max(0, Math.floor(Number(w.authoredIssues) || 0)),
+          authoredPrs: Array.isArray(w.authoredPrs) ? w.authoredPrs : []
+        }
       }
     } catch (e) { /* stale cache — first fetch overwrites it */ }
   }

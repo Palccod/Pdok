@@ -167,7 +167,6 @@ Rectangle {
               anchors.horizontalCenter: parent.horizontalCenter
               text: dayCell.modelData.letter
               textFormat: Text.PlainText
-              opacity: dayCell.modelData.offset === 0 ? 0.85 : 0.4
               font.family: root.fontFamily
               font.pixelSize: 9
               font.bold: dayCell.modelData.offset === 0
@@ -177,7 +176,7 @@ Rectangle {
               anchors.horizontalCenter: parent.horizontalCenter
               text: String(dayCell.modelData.count)
               textFormat: Text.PlainText
-              color: dayCell.modelData.count > 0 ? root.fg : root.dim
+              color: root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               font.bold: dayCell.modelData.count > 0

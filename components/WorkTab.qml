@@ -753,7 +753,8 @@ Rectangle {
 
                 Text {
                   id: rowAge
-                  anchors.right: parent.right
+                  anchors.right: copyBtn.left
+                  anchors.rightMargin: Style.space(6)
                   anchors.verticalCenter: parent.verticalCenter
                   text: root.timeAgo(commitRow.modelData.time, Date.now())
                   color: root.dim
@@ -766,6 +767,26 @@ Rectangle {
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.openUrl(commitRow.modelData.url)
+                }
+
+                // Copy button, above the row's own click area.
+                Text {
+                  id: copyBtn
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.copiedSha === commitRow.modelData.sha
+                    ? root.glyphCheck : "copy"
+                  color: root.copiedSha === commitRow.modelData.sha
+                    ? root.accent : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+
+                  MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.copySha(commitRow.modelData)
+                  }
                 }
               }
             }
