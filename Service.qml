@@ -7,8 +7,8 @@ import Quickshell.Hyprland
 import qs.Commons
 import "bridge" as PdokBridge
 
-// Shared per-shell service: notification history (from omarchy.notifications'
-// on-disk history), read/unread tracking, and slow system metrics sampling.
+// Shared per-shell service: the Daily tab state (tasks/todos/notes + gif
+// deck) and the Work tab's GitHub dashboard sources.
 // Bar widgets (one per monitor) bind to this instead of each sampling /proc.
 Item {
   id: root
@@ -75,41 +75,9 @@ Item {
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (home + "/.local/state")) + "/omarchy"
 
-  // ---- notification history ----------------------------------------------
-  // The directory IS the history (same store omarchy.notifications replays
-  // from); we only read it. Unread = entries newer than lastSeen.
-  readonly property string historyDir: stateDir + "/notifications/history/"
-  readonly property int maxEntries: 80
-
-  property var entries: []
-  // File names queued into the current/last jq read; entries take their
-  // unique id from these (daemon notification ids can repeat over time).
-  property var _pendingFiles: []
-  property double lastSeen: 0
-  // Per-entry read flags, keyed by history file name (unique). The
-  // watermark covers "mark all"; individually clicked entries are flagged
-  // so a click never touches neighbouring rows. Flags are pruned to the
-  // current unread set on every persist, so the map stays small.
-  property var readIds: ({})
-  property bool stateLoaded: false
-
-  function isUnread(entry) {
-    if (!entry) return false
-    return entry.timestamp > lastSeen && !readIds[entry.id]
-  }
-
-  readonly property int unreadCount: {
-    var count = 0
-    for (var i = 0; i < entries.length; i++)
-      if (isUnread(entries[i])) count++
-    return count
-  }
-
-  // Notification bodies arrive in inconsistent shapes depending on the app:
-  // KDE Connect sends double-escaped HTML ("&lt;br/&gt;") and literal "\n"
-  // sequences, others send real newlines or raw tags. Normalize to plain
-  // text with real line breaks — rendered with Text.PlainText afterwards,
-  // so nothing here can inject formatting.
+  // Task/todo/notes text arrives from files the user (or IPC callers) write:
+  // normalize escape noise to plain text with real line breaks — rendered
+  // with Text.PlainText afterwards, so nothing here can inject formatting.
   function cleanText(raw) {
     var s = String(raw === undefined || raw === null ? "" : raw)
     s = s.replace(/&lt;/g, "<")
@@ -167,7 +135,6 @@ Item {
     // bridge/Bridge.qml; the host facade stays the primary path.
     PdokBridge.Bridge.service = root
     mkdirProc.running = true
-    root.refresh()
     root.refreshGifs()
     root.refreshGithub()
   }
@@ -175,86 +142,8 @@ Item {
   // Unpublish so a widget falling back to the bridge never binds to a
   // dying instance.
   Component.onDestruction: if (PdokBridge.Bridge.service === root) PdokBridge.Bridge.service = null
-  function refresh() {
-    if (listProc.running) return
-    listProc.command = ["/usr/bin/ls", "-1t", root.historyDir]
-    listProc.running = true
-  }
-
-  function persistState() {
-    if (!root.stateLoaded) return
-    // Keep flags only for entries the watermark doesn't already cover.
-    var ids = {}
-    for (var i = 0; i < entries.length; i++) {
-      var e = entries[i]
-      if (e.timestamp > root.lastSeen && root.readIds[e.id]) ids[e.id] = true
-    }
-    root.readIds = ids
-    stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen, readIds: ids }))
-  }
-
-  function loadStateFlags(d) {
-    if (d && d.readIds && typeof d.readIds === "object" && !Array.isArray(d.readIds))
-      root.readIds = d.readIds
-  }
-
-  function markEntryRead(id) {
-    var key = String(id === undefined || id === null ? "" : id)
-    if (key.length === 0 || root.readIds[key]) return
-    var next = {}
-    for (var k in root.readIds) next[k] = true
-    next[key] = true
-    root.readIds = next
-    persistState()
-  }
-
-  // Mark every currently-listed entry at or older than `timestamp` read,
-  // individually (without moving the watermark, so newer entries — and the
-  // watermark's meaning for future arrivals — are untouched).
-  function markReadUpTo(timestamp) {
-    var ts = Number(timestamp)
-    if (!isFinite(ts)) return
-    var next = {}
-    for (var k in root.readIds) next[k] = true
-    var changed = false
-    for (var i = 0; i < entries.length; i++) {
-      var e = entries[i]
-      if (e.timestamp <= ts && !root.readIds[e.id]) {
-        next[e.id] = true
-        changed = true
-      }
-    }
-    if (changed) {
-      root.readIds = next
-      persistState()
-    }
-  }
-
-  function markAllRead() {
-    root.lastSeen = Date.now()
-    root.readIds = {}
-    if (root.stateLoaded)
-      stateFile.setText(JSON.stringify({ lastSeen: root.lastSeen, readIds: {} }))
-  }
 
   // ---- state file ----------------------------------------------------------
-
-  FileView {
-    id: stateFile
-    path: root.stateDir + "/pdok.json"
-    atomicWrites: true
-    watchChanges: false
-    printErrors: false
-    onLoaded: {
-      try {
-        var d = JSON.parse(text())
-        if (d && isFinite(Number(d.lastSeen))) root.lastSeen = Number(d.lastSeen)
-        root.loadStateFlags(d)
-      } catch (e) {}
-      root.stateLoaded = true
-    }
-    onLoadFailed: root.stateLoaded = true
-  }
 
   Process {
     id: mkdirProc
@@ -605,71 +494,6 @@ Item {
     running: true
     repeat: true
     onTriggered: root.refreshGifs()
-  }
-
-  // ---- notification history reading (two fixed-argv steps) ----------------
-
-  Process {
-    id: listProc
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var files = []
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var name = lines[i].trim()
-          if (name.length === 0) continue
-          if (!/^[0-9]+-[0-9]+\.json$/.test(name)) continue
-          files.push(name)
-          if (files.length >= root.maxEntries) break
-        }
-        if (files.length === 0) {
-          root.entries = []
-          return
-        }
-        if (readProc.running) return
-        root._pendingFiles = files
-        var argv = ["/usr/bin/jq", "-s", "-c", "."]
-        for (var j = 0; j < files.length; j++) argv.push(root.historyDir + files[j])
-        readProc.command = argv
-        readProc.running = true
-      }
-    }
-  }
-
-  Process {
-    id: readProc
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var data
-        try { data = JSON.parse(text) } catch (e) { return }
-        if (!Array.isArray(data)) return
-        var clean = []
-        for (var i = 0; i < data.length; i++) {
-          var e = data[i]
-          if (!e || typeof e !== "object") continue
-          var ts = Number(e.timestamp)
-          var urg = Math.round(Number(e.urgency))
-          clean.push({
-            id: root._pendingFiles && root._pendingFiles[i] !== undefined
-              ? String(root._pendingFiles[i]) : String(i),
-            app: cleanText(e.app),
-            appIcon: typeof e.appIcon === "string" ? e.appIcon : "",
-            summary: cleanText(e.summary),
-            body: cleanText(e.body),
-            urgency: isFinite(urg) ? Math.min(3, Math.max(0, urg)) : 1,
-            timestamp: isFinite(ts) ? ts : 0
-          })
-        }
-        root.entries = clean
-      }
-    }
-  }
-
-  Timer {
-    interval: 10000
-    running: true
-    repeat: true
-    onTriggered: root.refresh()
   }
 
   // ---- github dashboard sources ---------------------------------------------

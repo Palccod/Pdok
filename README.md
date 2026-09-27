@@ -13,9 +13,11 @@ that hugs the right (or left) side below the bar.
 | Tab | Shows |
 |---|---|
 | **Daily** | GIF deck on top (3D photo-stack style), a GitHub-style streak grid for your daily tasks, today's recurring tasks, a scratchpad, and todos |
-| **Dash** | CPU / memory / disk / battery bars, uptime, network throughput |
-| **Media** | Now-playing with art, seekable progress, and play/pause/next/previous (MPRIS) |
-| **Notifications** | Notification history from Omarchy's own notification store, with unread tracking and mark-all-read |
+| **Work** | dev.git-style GitHub dashboard: contribution heatmap, OPEN WORK counts, your open PRs, recent commits (click to copy the SHA) |
+| **Media** | Now-playing with art, seekable progress, an audio output visualizer, shuffle/repeat, and a per-app volume mixer (MPRIS + PipeWire) |
+| **Control** | Quick toggles (do-not-disturb, night light, stay awake, Wi-Fi, Bluetooth), output sliders (volume, brightness), network lists, and live CPU / memory / disk / network / uptime chips |
+
+A profile footer (avatar + name) is pinned under every tab.
 
 Details:
 
@@ -30,22 +32,20 @@ Details:
   it lives in `~/.local/state/omarchy/pdok-daily.json`.
 - The drawer follows your theme (colors, fonts, radii, popup translucency)
   through the shell's own tokens.
+- **Work tab** reuses the installed dev.git plugin's collector for the
+  heatmap and open-work queues, and fetches recent commits through the
+  authenticated `gh` CLI. Clicking a card opens the matching GitHub filter;
+  clicking `copy` on a commit row puts its full SHA on the clipboard.
 - Media routes through the first-party `omarchy.media` service when enabled
   (preferred-player logic + OSD feedback) and falls back to direct MPRIS.
-  The seek bar supports click/drag seeking; positions longer than an hour
-  render as h:mm:ss. Note: bare `mpv` publishes no MPRIS interface — use an
-  MPRIS bridge (e.g. mpv-mpris) for it to appear here. Album art is only
-  shown for local `file://` art — never fetched over the network from the
-  shell process.
-- The bar button shows a red dot while there are unread notifications, and
-  its glyph mirrors the configured side. Clicking an unread entry marks
-  just that entry read; the Mark read button (or everything-before mark)
-  clears in bulk. Read flags live in `~/.local/state/omarchy/pdok.json`.
-- Notification bodies are normalized to plain text at read time — HTML
-  entities decoded, `<br>` tags and literal `\n` sequences turned into real
-  line breaks, remaining tags stripped — and always rendered as plain text.
-- Metrics are sampled once per shell in a shared service (`/proc` + `df`),
-  not per monitor.
+  The visualizer and mixer read the default PipeWire sink and its playback
+  streams directly — no polling, no external tools. Album art is only shown
+  for local `file://` art — never fetched over the network from the shell
+  process.
+- **Control tab**: DND / night light / stay awake go through the shell's
+  first-party services; Wi-Fi and Bluetooth shell out to `nmcli` and
+  `bluetoothctl` with fixed argv; CPU/RAM/net are read from `/proc`, disk
+  and uptime from one `df` call.
 
 ## Install
 
@@ -93,21 +93,16 @@ Per-widget settings live in the `palccod.pdok` entry under `bar.layout` in
 
 ```bash
 omarchy-shell palccod.pdok toggle          # open/close/show/hide/toggle
-omarchy-shell palccod.pdok setTab daily    # daily | dash | media | notifications (opens the drawer)
+omarchy-shell palccod.pdok setTab daily    # daily | dash | work | media | control (opens the drawer)
 omarchy-shell palccod.pdok setSide left    # right | left
 omarchy-shell palccod.pdok setGifDir ~/Pictures/gifs   # custom deck folder ("" = default)
 omarchy-shell palccod.pdok pickGifDir     # open the drawer on the focused screen with the folder picker up
-omarchy-shell palccod.pdok markRead        # mark all notifications read
 omarchy-shell palccod.pdok dailyAddTask "Water the plants"
 omarchy-shell palccod.pdok dailyToggleTask 0   # toggle by index
 omarchy-shell palccod.pdok dailyRemoveTask 0   # remove by index
 omarchy-shell palccod.pdok dailySummary    # JSON: tasks, doneToday, streak, todos, gifs
 omarchy-shell palccod.pdok state           # full JSON dump for scripting
 ```
-
-Read/unread state is stored in `~/.local/state/omarchy/pdok.json`; the
-notification list itself is read (read-only) from Omarchy's
-`~/.local/state/omarchy/notifications/history/`.
 
 ## Uninstall
 

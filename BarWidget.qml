@@ -10,7 +10,7 @@ import "components"
 
 // Pdok — a side notch. One bar button opens a drawer that hugs the screen
 // edge (right by default, right-click the button to flip sides) with tabs
-// for system metrics, media, and notification history.
+// for daily tasks, a GitHub work dashboard, media, and quick settings.
 Panel {
   id: root
 
@@ -22,7 +22,8 @@ Panel {
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  // Shared per-shell service: notification history + metrics sampling.
+  // Shared per-shell service: daily state (tasks/todos/notes + gif deck)
+  // and the Work tab's GitHub dashboard sources.
   // Primary path: the bar host's scoped facade — the first-party bar scopes
   // it to this plugin, so serviceFor() reaches our own live service.
   // Fallback: the engine-wide bridge singleton. Replacement bars (e.g.
@@ -90,8 +91,7 @@ Panel {
     { id: "daily", label: "Daily" },
     { id: "work", label: "Work" },
     { id: "media", label: "Media" },
-    { id: "control", label: "Control" },
-    { id: "notifications", label: "Notifications" }
+    { id: "control", label: "Control" }
   ]
 
   implicitWidth: button.implicitWidth
@@ -99,7 +99,6 @@ Panel {
 
   onOpenedChanged: {
     if (opened && svc) {
-      svc.refresh()
       svc.refreshGifs()
       svc.refreshGithub()
     }
@@ -121,7 +120,6 @@ Panel {
         width: root.panelWidth,
         settings: root.settings,
         barPosition: root.bar ? root.bar.position : null,
-        unread: root.svc ? root.svc.unreadCount : -1,
         cardOrigin: sidePanel.cardOrigin,
         contentWidth: sidePanel.contentWidth,
         contentHeight: sidePanel.contentHeight,
@@ -129,7 +127,6 @@ Panel {
         barW: sidePanel.barW,
         screen: sidePanel.screen ? sidePanel.screen.name : "",
         focusedScreen: root.svc && root.svc.focusedScreenName ? root.svc.focusedScreenName() : "",
-        focusedPanelScreen: root.svc && root.svc.panelForFocused && root.svc.panelForFocused() && root.svc.panelForFocused().screenName ? root.svc.panelForFocused().screenName : "",
         gifs: root.svc ? root.svc.gifFiles.length : -1,
         gifDir: root.svc ? root.svc.activeGifDir : "",
         dailyTasks: root.svc ? root.svc.daily.tasks.length : -1,
@@ -165,9 +162,8 @@ Panel {
     }
 
     function setTab(tab: string): string {
-      // "alerts" kept as an alias for the pre-rename tab id, "dash" for the
-      // pre-rename system-monitor tab (now Work).
-      var wanted = tab === "alerts" ? "notifications" : (tab === "dash" ? "work" : tab)
+      // "dash" kept as an alias for the pre-rename system-monitor tab (now Work).
+      var wanted = tab === "dash" ? "work" : tab
       for (var i = 0; i < root.tabs.length; i++) {
         if (root.tabs[i].id === wanted) {
           if (root.svc && typeof root.svc.openTabOnFocused === "function")
@@ -180,26 +176,6 @@ Panel {
         }
       }
       return "unknown tab"
-    }
-
-    function markRead(): string {
-      if (!root.svc) return "service unavailable"
-      root.svc.markAllRead()
-      return "unread=" + root.svc.unreadCount
-    }
-
-    function readAt(timestamp: double): string {
-      if (!root.svc) return "service unavailable"
-      root.svc.markReadUpTo(timestamp)
-      return "unread=" + root.svc.unreadCount
-    }
-
-    function readId(id: string): string {
-      if (!root.svc) return "service unavailable"
-      // Only history-file names are valid entry ids.
-      if (!/^[0-9]+-[0-9]+\.json$/.test(id)) return "invalid id"
-      root.svc.markEntryRead(id)
-      return "unread=" + root.svc.unreadCount
     }
 
     function dailyAddTask(text: string): string {
@@ -303,21 +279,6 @@ Panel {
         radius: Style.space(2)
         color: root.foreground
       }
-    }
-
-    // Unread dot.
-    Rectangle {
-      anchors.top: parent.top
-      anchors.right: parent.right
-      anchors.topMargin: Style.space(1)
-      anchors.rightMargin: Style.space(1)
-      width: Style.space(6)
-      height: Style.space(6)
-      radius: width / 2
-      color: Color.urgent
-      border.width: 1
-      border.color: root.bar ? root.bar.background : Color.background
-      visible: root.svc ? root.svc.unreadCount > 0 : false
     }
   }
 
@@ -447,14 +408,6 @@ Panel {
           anchors.fill: parent
           visible: root.tab === "control"
           shell: root.bar ? root.bar.shell : null
-          fg: root.foreground
-          fontFamily: root.fontFamily
-        }
-
-        NotificationsTab {
-          anchors.fill: parent
-          visible: root.tab === "notifications"
-          svc: root.svc
           fg: root.foreground
           fontFamily: root.fontFamily
         }
