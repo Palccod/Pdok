@@ -177,7 +177,7 @@ Rectangle {
               anchors.horizontalCenter: parent.horizontalCenter
               text: String(dayCell.modelData.count)
               textFormat: Text.PlainText
-              color: dayCell.modelData.count > 0 ? root.doneGreen : root.dim
+              color: dayCell.modelData.count > 0 ? root.fg : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               font.bold: dayCell.modelData.count > 0
