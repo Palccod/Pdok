@@ -134,6 +134,14 @@ Item {
   // tab renders instantly on shell start.
   property string ghLogin: ""
   property string ghName: ""
+  // Profile footer avatar: GitHub profile picture cached under the state
+  // dir (downloaded with curl), bumped so widgets can cache-bust their
+  // Image source. Falls back to ~/.face client-side when absent.
+  property string ghAvatarUrl: ""
+  property string avatarFetchedUrl: ""
+  property int avatarVersion: 0
+  readonly property string avatarPath: stateDir + "/pdok-avatar.png"
+  readonly property string avatarTmpPath: stateDir + "/pdok-avatar.tmp"
   property var ghCommits: []
   property string ghUpdatedAt: ""
   property string ghError: ""
@@ -780,7 +788,7 @@ Item {
   // Recent commits: gh -> whoami -> public events, filtered to pushes.
   Process {
     id: ghUserProc
-    command: ["/usr/sbin/gh", "api", "user", "--jq", ".login + \"\\t\" + (.name // \"\")"]
+    command: ["/usr/sbin/gh", "api", "user", "--jq", ".login + \"\\t\" + (.name // \"\") + \"\\t\" + (.avatar_url // \"\")"]
     stderr: StdioCollector {
       waitForEnd: true
       property string errText: ""
@@ -803,6 +811,11 @@ Item {
         root.ghLogin = parts[0]
         root.ghName = parts.length > 1 ? parts[1] : ""
         root.ghError = ""
+        // Only githubusercontent avatar hosts are fetched; anything else is
+        // ignored rather than passed to curl.
+        var av = parts.length > 2 ? String(parts[2] || "") : ""
+        if (/^https:\/\/avatars\.githubusercontent\.com\//.test(av)) root.ghAvatarUrl = av
+        root.maybeFetchAvatar()
         // ghLogin is regex-validated above, so building the argv here is safe.
         // The public events feed omits commit details, so go through commit
         // search instead: own pushes across all repos, newest first, last 30d.
@@ -824,6 +837,46 @@ Item {
       }
       root.ghRefreshing = false
     }
+  }
+
+  // Avatar download: curl to a temp file, then an atomic rename into place
+  // so the widget never reads a half-written image.
+  function maybeFetchAvatar() {
+    if (root.ghAvatarUrl === "" || root.ghAvatarUrl === root.avatarFetchedUrl) return
+    if (avatarDlProc.running || avatarMvProc.running) return
+    avatarDlProc.command = ["/usr/sbin/curl", "-fsSL", "--max-time", "10",
+                            "-o", root.avatarTmpPath, root.ghAvatarUrl]
+    avatarDlProc.running = true
+  }
+
+  Process {
+    id: avatarDlProc
+    command: []
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      // Mark attempted either way so a dead avatar URL cannot hot-loop.
+      root.avatarFetchedUrl = root.ghAvatarUrl
+      if (exitCode === 0) {
+        avatarMvProc.command = ["/usr/bin/mv", root.avatarTmpPath, root.avatarPath]
+        avatarMvProc.running = true
+      }
+    }
+  }
+
+  Process {
+    id: avatarMvProc
+    command: []
+    onExited: function(exitCode) { if (exitCode === 0) root.avatarVersion++ }
+  }
+
+  FileView {
+    id: avatarFile
+    path: root.avatarPath
+    watchChanges: false
+    printErrors: false
+    onLoaded: root.avatarVersion++
+    // File vanished (state dir wiped): retry the download on next refresh.
+    onLoadFailed: root.avatarFetchedUrl = ""
   }
 
   Process {

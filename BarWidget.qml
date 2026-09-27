@@ -90,6 +90,7 @@ Panel {
     { id: "daily", label: "Daily" },
     { id: "work", label: "Work" },
     { id: "media", label: "Media" },
+    { id: "control", label: "Control" },
     { id: "notifications", label: "Notifications" }
   ]
 
@@ -407,11 +408,13 @@ Panel {
 
       // Tab stack
       Item {
+        id: tabStack
         anchors.top: tabChrome.bottom
         anchors.topMargin: Style.space(22)
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.bottom: footer.top
+        anchors.bottomMargin: Style.space(10)
 
         WorkTab {
           anchors.fill: parent
@@ -440,6 +443,14 @@ Panel {
           fontFamily: root.fontFamily
         }
 
+        ControlTab {
+          anchors.fill: parent
+          visible: root.tab === "control"
+          shell: root.bar ? root.bar.shell : null
+          fg: root.foreground
+          fontFamily: root.fontFamily
+        }
+
         NotificationsTab {
           anchors.fill: parent
           visible: root.tab === "notifications"
@@ -447,6 +458,17 @@ Panel {
           fg: root.foreground
           fontFamily: root.fontFamily
         }
+      }
+
+      // Persistent footer: avatar + user name under every tab.
+      ProfileFooter {
+        id: footer
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        svc: root.svc
+        fg: root.foreground
+        fontFamily: root.fontFamily
       }
     }
   }

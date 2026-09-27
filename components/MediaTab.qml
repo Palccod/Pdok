@@ -2,12 +2,14 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell.Services.Mpris
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 
-// Media tab: now-playing with playback controls. Prefers the first-party
-// omarchy.media service (preferred-player logic + OSD feedback) and falls
-// back to direct Mpris when it is disabled.
+// Media tab: now-playing with playback controls, a live output visualizer
+// driven by PipeWire peak samples, and a per-app volume mixer. Prefers the
+// first-party omarchy.media service (preferred-player logic + OSD feedback)
+// and falls back to direct Mpris when it is disabled.
 Rectangle {
   id: root
 
@@ -16,6 +18,8 @@ Rectangle {
   property var shell: null        // bar.shell, to reach omarchy.media
   property color fg: Color.foreground
   property string fontFamily: Style.font.family
+
+  readonly property color dim: Qt.darker(fg, 1.55)
 
   // Mpris fallback
   readonly property var players: Mpris.players ? Mpris.players.values : []
@@ -46,6 +50,14 @@ Rectangle {
   readonly property string identity: activePlayer ? (activePlayer.identity || activePlayer.desktopEntry || "") : ""
   readonly property bool playing: activePlayer && activePlayer.isPlaying
 
+  // Shuffle / repeat, when the player supports them. loopState cycles
+  // None -> Track -> Playlist -> None.
+  readonly property bool shuffleOn: activePlayer && activePlayer.shuffleSupported ? activePlayer.shuffle === true : false
+  readonly property int loopState: activePlayer ? Number(activePlayer.loopState) : 0
+  readonly property string glyphShuffle: "󰒡"
+  readonly property string glyphRepeat: "󰑷"
+  readonly property string glyphRepeatOnce: "󰑹"
+
   // Progress. Quickshell's MprisPlayer exposes position and length in
   // SECONDS (ms precision); `length` is only meaningful when lengthSupported
   // holds — otherwise it falls back to mirroring position.
@@ -61,6 +73,57 @@ Rectangle {
     var url = activePlayer && activePlayer.trackArtUrl ? String(activePlayer.trackArtUrl) : ""
     return url.indexOf("file://") === 0 ? url : ""
   }
+
+  // ------------------------------------------------------------ visualizer
+  // Real output levels: sample the default sink's peak monitor into a
+  // scrolling bar buffer rendered on a Canvas. Nothing plays = flat line.
+  readonly property int vizBars: 52
+  readonly property var sinkNode: Pipewire.defaultAudioSink
+  property var vizLevels: []
+
+  PwNodePeakMonitor {
+    id: peakMonitor
+    node: root.sinkNode
+    enabled: root.visible && !!root.sinkNode
+  }
+
+  Timer {
+    interval: 40
+    running: root.visible && !!root.sinkNode
+    repeat: true
+    onTriggered: {
+      var p = Math.max(0, Math.min(1, Number(peakMonitor.peak) || 0))
+      // Sliding window: grow to vizBars, then drop the oldest sample.
+      var levels = root.vizLevels.slice()
+      levels.push(p)
+      if (levels.length > root.vizBars) levels = levels.slice(1)
+      root.vizLevels = levels
+      viz.requestPaint()
+    }
+  }
+
+  // ------------------------------------------------------------ app mixer
+  // Active playback streams (one row per app). `type` is a PwNodeType flag
+  // mask (1 Audio | 4 Stream | 8 Source | 16 Sink) — a playback stream has
+  // Audio+Stream+Sink; input streams carry Source instead. `audio` and
+  // `properties` populate once the tracker below sees the raw node list.
+  readonly property var sinkStreams: {
+    var out = []
+    var nodes = Pipewire.nodes ? Pipewire.nodes.values : []
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      if (!n || !n.isStream || !n.isSink) continue
+      if ((Number(n.type) & 1) !== 1) continue   // audio only
+      out.push(n)
+    }
+    return out
+  }
+
+  // Tracking bootstraps the Pipewire registry itself (nodes stay empty
+  // until some tracker watches the raw list) and populates `audio`
+  // (volume/mute) and `properties` (labels) on the mixer streams, plus the
+  // output sink for the peak monitor.
+  PwObjectTracker { objects: Pipewire.nodes ? Pipewire.nodes.values : [] }
 
   // Position does not update reactively — the documented pattern is to
   // re-read it on a timer while the tab is visible.
@@ -89,6 +152,12 @@ Rectangle {
     var s = t % 60
     if (h > 0) return h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
     return m + ":" + (s < 10 ? "0" : "") + s
+  }
+
+  function streamLabel(node) {
+    if (!node) return ""
+    var p = node.properties || {}
+    return String(p["application.name"] || node.description || p["media.name"] || node.name || "")
   }
 
   Flickable {
@@ -291,11 +360,52 @@ Rectangle {
         }
       }
 
+      // Output visualizer — newest sample at the right edge.
+      Canvas {
+        id: viz
+        width: parent.width
+        height: Style.space(56)
+        visible: !!root.sinkNode
+
+        onPaint: {
+          var ctx = getContext("2d")
+          ctx.clearRect(0, 0, width, height)
+          var n = root.vizBars
+          var bw = width / n
+          var levels = root.vizLevels
+          var offset = n - levels.length
+          for (var i = 0; i < levels.length; i++) {
+            var v = Math.max(0, Math.min(1, levels[i]))
+            var h = Math.max(2, v * height)
+            ctx.fillStyle = Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.30 + 0.70 * v)
+            ctx.fillRect((offset + i) * bw + 1, height - h, Math.max(1, bw - 2), h)
+          }
+        }
+      }
+
       // Controls
       Row {
         visible: root.hasPlayer
         anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(18)
+        spacing: Style.space(14)
+
+        MediaButton {
+          glyph: root.glyphShuffle
+          fg: root.fg
+          fontFamily: root.fontFamily
+          enabled: root.activePlayer && root.activePlayer.shuffleSupported === true
+          onClicked: if (root.activePlayer) root.activePlayer.shuffle = !root.activePlayer.shuffle
+
+          Text {
+            anchors.centerIn: parent
+            visible: root.shuffleOn
+            text: "•"
+            textFormat: Text.PlainText
+            color: Color.accent
+            font.pixelSize: Style.font.subtitle
+            anchors.verticalCenterOffset: Style.space(11)
+          }
+        }
 
         MediaButton {
           glyph: "󰒮"
@@ -321,7 +431,119 @@ Rectangle {
           enabled: root.activePlayer && root.activePlayer.canGoNext !== false
           onClicked: root.runAction("next")
         }
+
+        MediaButton {
+          glyph: root.loopState === 1 ? root.glyphRepeatOnce : root.glyphRepeat
+          fg: root.fg
+          fontFamily: root.fontFamily
+          enabled: root.activePlayer && root.activePlayer.loopSupported === true
+          onClicked: {
+            if (!root.activePlayer) return
+            // MprisLoopState: 0 None, 1 Track, 2 Playlist.
+            root.activePlayer.loopState = root.loopState === 2 ? 0 : root.loopState + 1
+          }
+
+          Text {
+            anchors.centerIn: parent
+            visible: root.loopState !== 0
+            text: "•"
+            textFormat: Text.PlainText
+            color: Color.accent
+            font.pixelSize: Style.font.subtitle
+            anchors.verticalCenterOffset: Style.space(11)
+          }
+        }
       }
+
+      // ---------------------------------------------------------- app mixer
+      Column {
+        width: parent.width
+        spacing: Style.space(8)
+        visible: root.sinkStreams.length > 0
+
+        PanelSectionHeader {
+          width: parent.width
+          text: "APP VOLUME"
+          foreground: root.fg
+          fontFamily: root.fontFamily
+        }
+
+        Repeater {
+          model: root.sinkStreams
+
+          delegate: Item {
+            id: mixRow
+
+            required property var modelData
+
+            width: parent.width
+            height: Style.space(28)
+
+            readonly property string label: root.streamLabel(modelData)
+            readonly property bool muted: modelData.audio ? modelData.audio.muted === true : false
+
+            Text {
+              id: mixGlyph
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(2)
+              anchors.verticalCenter: parent.verticalCenter
+              text: mixRow.muted ? root.glyphVolMuted : root.glyphVol
+              textFormat: Text.PlainText
+              color: mixRow.muted ? root.dim : root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (mixRow.modelData.audio) mixRow.modelData.audio.muted = !mixRow.modelData.audio.muted
+              }
+            }
+
+            Text {
+              id: mixLabel
+              anchors.left: mixGlyph.right
+              anchors.leftMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(implicitWidth + 2, Style.space(96))
+              text: mixRow.label
+              textFormat: Text.PlainText
+              color: mixRow.muted ? root.dim : root.fg
+              opacity: mixRow.muted ? 0.6 : 1.0
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+
+            HSlider {
+              anchors.left: mixLabel.right
+              anchors.leftMargin: Style.space(8)
+              anchors.right: mixPct.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              fg: root.fg
+              value: mixRow.modelData.audio ? Number(mixRow.modelData.audio.volume) || 0 : 0
+              onMoved: function(v) { if (mixRow.modelData.audio) mixRow.modelData.audio.volume = v }
+            }
+
+            Text {
+              id: mixPct
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(2)
+              anchors.verticalCenter: parent.verticalCenter
+              text: Math.round((mixRow.modelData.audio ? Number(mixRow.modelData.audio.volume) || 0 : 0) * 100) + "%"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+        }
+      }
+
+      // Breathing room at the bottom.
+      Item { width: parent.width; height: Style.space(4) }
     }
   }
 }
