@@ -140,23 +140,26 @@ Rectangle {
         wrapMode: Text.WordWrap
       }
 
-      // Full-year contribution heatmap, drawn as one canvas (a scene graph
-      // node per day is pure overhead) — same math as the Git panel.
+      // Full-year contribution heatmap at the Daily streak grid's cell
+      // size, horizontally scrollable (newest week starts on screen); the
+      // weekday gutter stays pinned while the months scroll underneath.
       Item {
         id: yearGraph
         width: parent.width
         visible: root.svc && root.svc.ghCalendar.supported === true
-        implicitHeight: monthLabelHeight + pitch * 7
+        implicitHeight: monthLabelHeight + gridH
 
         readonly property var calendar: root.svc ? root.svc.ghCalendar : ({})
         readonly property var counts: calendar.counts || []
         readonly property var levels: calendar.levels || []
         readonly property int weeks: Number(calendar.weeks || 0)
         readonly property int labelWidth: Style.space(24)
-        readonly property int pitch: weeks > 0
-          ? Math.max(3, Math.floor((width - labelWidth) / weeks)) : 0
-        readonly property int gap: pitch >= 7 ? Math.max(1, Style.space(2)) : 1
-        readonly property int cell: Math.max(2, pitch - gap)
+        // Same cell size as the Daily tab's StreakGrid.
+        readonly property int cellSize: 11
+        readonly property int gapSize: 3
+        readonly property int step: cellSize + gapSize
+        readonly property int gridW: weeks * step
+        readonly property int gridH: 7 * step - gapSize
         readonly property int monthLabelHeight: Math.round(Style.font.caption * 1.4)
 
         property int hoverIndex: -1
@@ -185,34 +188,129 @@ Rectangle {
           return label + " on " + months[date.getMonth()] + " " + date.getDate() + ", " + date.getFullYear()
         }
 
-        Item {
-          id: monthRuler
-          anchors.left: parent.left
-          anchors.leftMargin: yearGraph.labelWidth
-          anchors.top: parent.top
-          width: yearGraph.weeks * yearGraph.pitch
-          height: yearGraph.monthLabelHeight
+        Flickable {
+          id: hscroll
+          anchors.fill: parent
+          contentWidth: yearGraph.labelWidth + yearGraph.gridW
+          contentHeight: height
+          clip: true
+          interactive: contentWidth > width
+          boundsBehavior: Flickable.StopAtBounds
 
-          Repeater {
-            model: yearGraph.calendar ? yearGraph.calendar.monthStarts : []
+          // Land on the most recent week; scrolling back stays where the
+          // user leaves it until the tab is reopened.
+          function scrollToEnd() {
+            contentX = Math.max(0, contentWidth - width)
+          }
+          Component.onCompleted: Qt.callLater(scrollToEnd)
+          onVisibleChanged: if (visible) Qt.callLater(scrollToEnd)
 
-            Text {
-              required property var modelData
-              required property int index
+          Item {
+            width: hscroll.contentWidth
+            height: hscroll.height
 
-              visible: Number(modelData) > 0
-              x: index * yearGraph.pitch
-              text: visible
-                ? ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(modelData)]
-                : ""
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+            // Month ruler, scrolls with the grid.
+            Item {
+              x: yearGraph.labelWidth
+              anchors.top: parent.top
+              width: yearGraph.gridW
+              height: yearGraph.monthLabelHeight
+
+              Repeater {
+                model: yearGraph.calendar ? yearGraph.calendar.monthStarts : []
+
+                Text {
+                  required property var modelData
+                  required property int index
+
+                  visible: Number(modelData) > 0
+                  x: index * yearGraph.step
+                  text: visible
+                    ? ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(modelData)]
+                    : ""
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+
+            Canvas {
+              id: grid
+              x: yearGraph.labelWidth
+              y: yearGraph.monthLabelHeight
+              width: yearGraph.gridW
+              height: yearGraph.gridH
+              renderStrategy: Canvas.Cooperative
+
+              readonly property string paintKey: [
+                yearGraph.counts.length, yearGraph.levels.length,
+                yearGraph.calendar ? yearGraph.calendar.end : "",
+                yearGraph.calendar ? yearGraph.calendar.total : 0,
+                yearGraph.calendar ? yearGraph.calendar.max : 0,
+                yearGraph.cellSize, yearGraph.step,
+                String(root.accent), String(root.fg)
+              ].join(":")
+
+              onPaintKeyChanged: requestPaint()
+              onWidthChanged: requestPaint()
+              onHeightChanged: requestPaint()
+
+              onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+                var levels = yearGraph.levels
+                var total = yearGraph.counts.length
+                for (var i = 0; i < total; i++) {
+                  var col = Math.floor(i / 7)
+                  var row = i % 7
+                  ctx.fillStyle = yearGraph.levelColor(Number(levels[i] || 0))
+                  ctx.beginPath()
+                  ctx.roundedRect(col * yearGraph.step, row * yearGraph.step,
+                                  yearGraph.cellSize, yearGraph.cellSize, 2, 2)
+                  ctx.fill()
+                }
+                // Today sits last in the series; ring it so "did I ship today" is
+                // answerable at a glance.
+                if (total > 0) {
+                  var last = total - 1
+                  ctx.strokeStyle = root.fg
+                  ctx.lineWidth = 1
+                  ctx.beginPath()
+                  ctx.roundedRect(Math.floor(last / 7) * yearGraph.step + 0.5,
+                                  (last % 7) * yearGraph.step + 0.5,
+                                  yearGraph.cellSize - 1, yearGraph.cellSize - 1, 2, 2)
+                  ctx.stroke()
+                }
+              }
+
+              MouseArea {
+                id: gridHover
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.NoButton
+
+                onPositionChanged: function(mouse) {
+                  var col = Math.floor(mouse.x / yearGraph.step)
+                  var row = Math.floor(mouse.y / yearGraph.step)
+                  var index = col * 7 + row
+                  yearGraph.hoverIndex = (row >= 0 && row < 7 && index >= 0 && index < yearGraph.counts.length) ? index : -1
+                }
+                onExited: yearGraph.hoverIndex = -1
+              }
+
+              PanelToolTip {
+                visible: gridHover.containsMouse && yearGraph.hoverIndex >= 0
+                text: yearGraph.tooltipFor(yearGraph.hoverIndex)
+                fontFamily: root.fontFamily
+                delay: 120
+              }
             }
           }
         }
 
+        // Weekday gutter, pinned while the months scroll.
         Repeater {
           model: [{ row: 1, label: "Mon" }, { row: 3, label: "Wed" }, { row: 5, label: "Fri" }]
 
@@ -220,84 +318,12 @@ Rectangle {
             required property var modelData
 
             x: 0
-            y: yearGraph.monthLabelHeight + modelData.row * yearGraph.pitch
-              + (yearGraph.cell - implicitHeight) / 2
+            y: yearGraph.monthLabelHeight + modelData.row * yearGraph.step
+              + (yearGraph.cellSize - implicitHeight) / 2
             text: modelData.label
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-          }
-        }
-
-        Canvas {
-          id: grid
-          x: yearGraph.labelWidth
-          y: yearGraph.monthLabelHeight
-          width: yearGraph.weeks * yearGraph.pitch
-          height: yearGraph.pitch * 7
-          renderStrategy: Canvas.Cooperative
-
-          readonly property string paintKey: [
-            yearGraph.counts.length, yearGraph.levels.length,
-            yearGraph.calendar ? yearGraph.calendar.end : "",
-            yearGraph.calendar ? yearGraph.calendar.total : 0,
-            yearGraph.calendar ? yearGraph.calendar.max : 0,
-            yearGraph.pitch, yearGraph.cell,
-            String(root.accent), String(root.fg)
-          ].join(":")
-
-          onPaintKeyChanged: requestPaint()
-          onWidthChanged: requestPaint()
-          onHeightChanged: requestPaint()
-
-          onPaint: {
-            var ctx = getContext("2d")
-            ctx.reset()
-            var levels = yearGraph.levels
-            var total = yearGraph.counts.length
-            var radius = yearGraph.cell >= 6 ? 2 : 1
-            for (var i = 0; i < total; i++) {
-              var col = Math.floor(i / 7)
-              var row = i % 7
-              ctx.fillStyle = yearGraph.levelColor(Number(levels[i] || 0))
-              ctx.beginPath()
-              ctx.roundedRect(col * yearGraph.pitch, row * yearGraph.pitch, yearGraph.cell, yearGraph.cell, radius, radius)
-              ctx.fill()
-            }
-            // Today sits last in the series; ring it so "did I ship today" is
-            // answerable at a glance.
-            if (total > 0) {
-              var last = total - 1
-              ctx.strokeStyle = root.fg
-              ctx.lineWidth = 1
-              ctx.beginPath()
-              ctx.roundedRect(Math.floor(last / 7) * yearGraph.pitch + 0.5, (last % 7) * yearGraph.pitch + 0.5,
-                              yearGraph.cell - 1, yearGraph.cell - 1, radius, radius)
-              ctx.stroke()
-            }
-          }
-
-          MouseArea {
-            id: gridHover
-            anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.NoButton
-
-            onPositionChanged: function(mouse) {
-              if (yearGraph.pitch <= 0) { yearGraph.hoverIndex = -1; return }
-              var col = Math.floor(mouse.x / yearGraph.pitch)
-              var row = Math.floor(mouse.y / yearGraph.pitch)
-              var index = col * 7 + row
-              yearGraph.hoverIndex = (row >= 0 && row < 7 && index >= 0 && index < yearGraph.counts.length) ? index : -1
-            }
-            onExited: yearGraph.hoverIndex = -1
-          }
-
-          PanelToolTip {
-            visible: gridHover.containsMouse && yearGraph.hoverIndex >= 0
-            text: yearGraph.tooltipFor(yearGraph.hoverIndex)
-            fontFamily: root.fontFamily
-            delay: 120
           }
         }
       }
