@@ -177,6 +177,21 @@ Rectangle {
           return start
         }
 
+        // Show a month label only if it keeps ~three glyph widths of clear
+        // space from the last one shown; short months at 4-week steps would
+        // otherwise collide ("SepOct").
+        function monthVisible(index) {
+          var ms = calendar ? calendar.monthStarts : []
+          if (index >= ms.length || Number(ms[index] || 0) <= 0) return false
+          var minWeeks = Math.max(2, Math.ceil((Style.font.caption * 3.0) / step))
+          var last = -999
+          for (var i = 0; i <= index; i++) {
+            if (Number(ms[i] || 0) <= 0) continue
+            if (i - last >= minWeeks) last = i
+          }
+          return last === index
+        }
+
         function tooltipFor(index) {
           if (index < 0 || index >= counts.length) return ""
           var count = Number(counts[index] || 0)
@@ -190,8 +205,13 @@ Rectangle {
 
         Flickable {
           id: hscroll
-          anchors.fill: parent
-          contentWidth: yearGraph.labelWidth + yearGraph.gridW
+          // The viewport begins after the pinned gutter, so scrolled cells
+          // can never render under the weekday labels.
+          x: yearGraph.labelWidth
+          width: parent.width - yearGraph.labelWidth
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          contentWidth: yearGraph.gridW
           contentHeight: height
           clip: true
           interactive: contentWidth > width
@@ -211,7 +231,6 @@ Rectangle {
 
             // Month ruler, scrolls with the grid.
             Item {
-              x: yearGraph.labelWidth
               anchors.top: parent.top
               width: yearGraph.gridW
               height: yearGraph.monthLabelHeight
@@ -223,7 +242,7 @@ Rectangle {
                   required property var modelData
                   required property int index
 
-                  visible: Number(modelData) > 0
+                  visible: yearGraph.monthVisible(index)
                   x: index * yearGraph.step
                   text: visible
                     ? ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -238,7 +257,6 @@ Rectangle {
 
             Canvas {
               id: grid
-              x: yearGraph.labelWidth
               y: yearGraph.monthLabelHeight
               width: yearGraph.gridW
               height: yearGraph.gridH
