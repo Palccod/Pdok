@@ -13,7 +13,9 @@ Rectangle {
 
   property bool daily: true
   property var svc: null
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  property color accent: "#3ecf5b"
+  property color danger: "#e05252"
   property string fontFamily: Style.font.family
 
   readonly property var items: {
@@ -84,9 +86,9 @@ Rectangle {
             width: Style.space(16)
             height: Style.space(16)
             radius: Style.space(4)
-            color: rowRoot.done ? Color.accent : "transparent"
+            color: rowRoot.done ? root.accent : "transparent"
             border.width: 1
-            border.color: rowRoot.done ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.45)
+            border.color: rowRoot.done ? root.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.45)
 
             Text {
               anchors.centerIn: parent
@@ -134,7 +136,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             text: "✕"
             textFormat: Text.PlainText
-            color: Color.urgent
+            color: root.danger
             opacity: rowMa.containsMouse ? 0.8 : 0.0
             Behavior on opacity { NumberAnimation { duration: 150 } }
             font.family: root.fontFamily

@@ -16,13 +16,14 @@ Rectangle {
   color: "transparent"
 
   property var svc: null
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  readonly property color doneGreen: "#3ecf5b"
   property string fontFamily: Style.font.family
 
-  readonly property color doneGreen: "#3fb950"
+
   // Greyish secondary tone for the strip's day initials and zero counts
   // (was referenced without being defined, which rendered default black).
-  readonly property color dim: Qt.darker(fg, 1.55)
+  readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
   readonly property int cellSize: 11
   readonly property int gapSize: 3
   readonly property int step: cellSize + gapSize

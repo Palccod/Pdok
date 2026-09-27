@@ -13,7 +13,9 @@ Rectangle {
   color: "transparent"
 
   property var svc: null
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  property color accent: "#3ecf5b"
+  property color danger: "#e05252"
   property string fontFamily: Style.font.family
   // Host function(path) -> status line; validates, applies and persists a
   // picked GIF directory (shared with the setGifDir IPC command).
@@ -57,34 +59,22 @@ Rectangle {
         width: parent.width
         spacing: Style.space(8)
 
-        Item {
+        SectionHeader {
           width: parent.width
-          height: streakHeader.implicitHeight
+          title: "STREAK"
+          fg: root.fg
+          fontFamily: root.fontFamily
 
           Text {
-            id: streakHeader
-            anchors.left: parent.left
-            text: "Streak"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.55
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1
-          }
-
-          Text {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
             text: {
               if (!root.svc || root.svc.daily.tasks.length === 0) return "no daily tasks yet"
               return root.svc.todayDoneIds().length + " / " + root.svc.daily.tasks.length + " today"
             }
             textFormat: Text.PlainText
             color: root.fg
-            opacity: 0.55
+            opacity: 0.5
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: 10
           }
         }
 
@@ -101,14 +91,11 @@ Rectangle {
         width: parent.width
         spacing: Style.space(6)
 
-        Text {
-          text: "Daily tasks"
-          textFormat: Text.PlainText
-          color: root.fg
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.letterSpacing: 1
+        SectionHeader {
+          width: parent.width
+          title: "DAILY TASKS"
+          fg: root.fg
+          fontFamily: root.fontFamily
         }
 
         TaskList {
@@ -125,14 +112,11 @@ Rectangle {
         width: parent.width
         spacing: Style.space(6)
 
-        Text {
-          text: "Quick notes"
-          textFormat: Text.PlainText
-          color: root.fg
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.letterSpacing: 1
+        SectionHeader {
+          width: parent.width
+          title: "QUICK NOTES"
+          fg: root.fg
+          fontFamily: root.fontFamily
         }
 
         Rectangle {
@@ -199,14 +183,11 @@ Rectangle {
         width: parent.width
         spacing: Style.space(6)
 
-        Text {
-          text: "Todos"
-          textFormat: Text.PlainText
-          color: root.fg
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.letterSpacing: 1
+        SectionHeader {
+          width: parent.width
+          title: "TODOS"
+          fg: root.fg
+          fontFamily: root.fontFamily
         }
 
         TaskList {

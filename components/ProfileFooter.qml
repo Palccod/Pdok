@@ -13,7 +13,7 @@ Rectangle {
   id: root
 
   property var svc: null
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
   property string fontFamily: Style.font.family
 
   readonly property string home: Quickshell.env("HOME") || ""

@@ -19,7 +19,12 @@ Panel {
   // Own the IpcHandler so we can expose state/setSide next to open/close.
   manageIpc: false
 
-  readonly property color foreground: bar ? bar.barForeground : Color.foreground
+  // Ruixen-notch palette, hardcoded the way the notch itself does it:
+  // pure white text, 50% white muted, green accent, fixed red for
+  // muted/off states ("plain QML primitives, no design-token system").
+  readonly property color foreground: "#ffffff"
+  readonly property color accent: "#3ecf5b"
+  readonly property color danger: "#e05252"
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // Shared per-shell service: daily state (tasks/todos/notes + gif deck)
@@ -88,10 +93,10 @@ Panel {
   property int pickerNonce: 0
   function requestPicker() { root.pickerNonce++ }
   readonly property var tabs: [
-    { id: "daily", label: "Daily" },
-    { id: "work", label: "Work" },
-    { id: "media", label: "Media" },
-    { id: "control", label: "Control" }
+    { id: "daily", label: "Daily", glyph: "󰃭" },
+    { id: "work", label: "Work", glyph: "󰊢" },
+    { id: "media", label: "Media", glyph: "󰝚" },
+    { id: "control", label: "Control", glyph: "󰌺" }
   ]
 
   implicitWidth: button.implicitWidth
@@ -303,7 +308,9 @@ Panel {
     Item {
       anchors.fill: parent
 
-      // Tab chrome
+      // Tab chrome — ruixen TabButton pills: tonal fill when active
+      // (white 0.14) with the accent-coloured glyph, transparent with a
+      // subtle hover otherwise, 120ms color animation.
       Item {
         id: tabChrome
         anchors.top: parent.top
@@ -315,7 +322,8 @@ Panel {
           id: tabRow
           anchors.left: parent.left
           anchors.right: parent.right
-          height: Style.space(30)
+          height: Style.space(44)
+          spacing: Style.space(6)
 
           Repeater {
             model: root.tabs
@@ -325,24 +333,37 @@ Panel {
 
               required property var modelData
 
-              width: parent.width / root.tabs.length
+              width: (parent.width - tabRow.spacing * (root.tabs.length - 1)) / root.tabs.length
               height: parent.height
-              radius: Style.space(6)
-              color: {
-                if (root.tab === modelData.id) return Style.selectedFill
-                if (tabMa.containsMouse) return Style.hoverFill
-                return "transparent"
-              }
+              radius: 12
+              color: root.tab === modelData.id ? Qt.rgba(1, 1, 1, 0.14)
+                   : (tabMa.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : "transparent")
+              Behavior on color { ColorAnimation { duration: 120 } }
 
-              Text {
+              Column {
                 anchors.centerIn: parent
-                text: tabBtn.modelData.label
-                textFormat: Text.PlainText
-                color: root.foreground
-                opacity: root.tab === tabBtn.modelData.id ? 1.0 : 0.6
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: root.tab === tabBtn.modelData.id
+                spacing: 2
+
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: tabBtn.modelData.glyph
+                  textFormat: Text.PlainText
+                  color: root.tab === tabBtn.modelData.id ? root.accent : root.foreground
+                  opacity: root.tab === tabBtn.modelData.id ? 1.0 : 0.55
+                  font.family: root.fontFamily
+                  font.pixelSize: 18
+                }
+
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: tabBtn.modelData.label
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  opacity: root.tab === tabBtn.modelData.id ? 1.0 : 0.45
+                  font.family: root.fontFamily
+                  font.pixelSize: 9
+                  font.bold: root.tab === tabBtn.modelData.id
+                }
               }
 
               MouseArea {
@@ -354,16 +375,6 @@ Panel {
               }
             }
           }
-        }
-
-        Rectangle {
-          anchors.top: tabRow.bottom
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.topMargin: Style.space(6)
-          height: 1
-          color: root.foreground
-          opacity: 0.1
         }
       }
 
@@ -383,6 +394,8 @@ Panel {
           svc: root.svc
           bar: root.bar
           fg: root.foreground
+          accent: root.accent
+          urgent: root.danger
           fontFamily: root.fontFamily
         }
 
@@ -391,6 +404,8 @@ Panel {
           visible: root.tab === "daily"
           svc: root.svc
           fg: root.foreground
+          accent: root.accent
+          danger: root.danger
           fontFamily: root.fontFamily
           applyDir: root.applyGifDir
           pickerNonce: root.pickerNonce
@@ -401,6 +416,7 @@ Panel {
           visible: root.tab === "media"
           shell: root.bar ? root.bar.shell : null
           fg: root.foreground
+          accent: root.accent
           fontFamily: root.fontFamily
         }
 
@@ -409,6 +425,7 @@ Panel {
           visible: root.tab === "control"
           shell: root.bar ? root.bar.shell : null
           fg: root.foreground
+          accent: root.accent
           fontFamily: root.fontFamily
         }
       }

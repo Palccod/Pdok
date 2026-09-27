@@ -17,10 +17,11 @@ Rectangle {
   color: "transparent"
 
   property var shell: null        // bar.shell, for first-party service access
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  property color accent: "#3ecf5b"
   property string fontFamily: Style.font.family
 
-  readonly property color dim: Qt.darker(fg, 1.55)
+  readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
 
   // First-party service proxies. Under replacement bars serviceFor() is a
   // null stub, so fall through to the allowlisted firstPartyServiceFor()
@@ -398,80 +399,64 @@ Rectangle {
   PwObjectTracker { objects: Pipewire.nodes ? Pipewire.nodes.values : [] }
 
   // ------------------------------------------------------------ section bits
-  component HeaderRow: Item {
+  // Ruixen pattern: each section is a tonal pane (white 0.06, radius 10)
+  // holding black sub-panels (radius 8) — the grey only ever shows as the
+  // gutter around/between the black panels.
+  component Pane: Rectangle {
     width: parent ? parent.width : 0
-    height: hdr.implicitHeight
-
-    required property string title
-    property bool showRefresh: false
-    signal refreshed()
-
-    PanelSectionHeader {
-      id: hdr
-      anchors.left: parent.left
-      text: parent.title
-      foreground: root.fg
-      fontFamily: root.fontFamily
-    }
-
-    Text {
-      visible: parent.showRefresh
-      anchors.right: parent.right
-      anchors.baseline: hdr.baseline
-      text: root.glyphRefresh
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      color: root.fg
-      opacity: refreshMa.containsMouse ? 1.0 : 0.7
-
-      MouseArea {
-        id: refreshMa
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: parent.parent.refreshed()
-      }
-    }
+    radius: 10
+    color: Qt.rgba(1, 1, 1, 0.06)
+    clip: true
+    height: childrenRect.height + 16
   }
 
-  component SysChip: Rectangle {
+  component BlackPanel: Rectangle {
+    width: parent ? parent.width - 16 : 0
+    anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
+    radius: 8
+    color: "#000000"
+  }
+
+  component SysPanel: Rectangle {
     id: chip
 
     required property string icon
     required property string label
     required property string value
 
-    // Two chips per Grid row; parent is the Grid.
+    // Two panels per Grid row; parent is the Grid.
     width: parent ? (parent.width - (parent.columnSpacing || 0)) / 2 : 0
-    color: Util.alpha(root.fg, 0.05)
-    radius: Style.space(6)
-    height: Style.space(46)
+    color: "#000000"
+    radius: 8
+    height: 48
 
     Row {
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(10)
+      anchors.leftMargin: 10
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(8)
+      spacing: 8
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
         text: chip.icon
         textFormat: Text.PlainText
-        color: root.dim
+        color: root.fg
+        opacity: 0.55
         font.family: root.fontFamily
-        font.pixelSize: Style.font.icon
+        font.pixelSize: 16
       }
 
       Column {
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 0
+        spacing: 1
 
         Text {
           text: chip.label
           textFormat: Text.PlainText
-          color: root.dim
+          color: root.fg
+          opacity: 0.5
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: 9
         }
 
         Text {
@@ -479,10 +464,10 @@ Rectangle {
           textFormat: Text.PlainText
           color: root.fg
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: 12
           font.bold: true
           elide: Text.ElideRight
-          width: Math.min(implicitWidth, Style.space(100))
+          width: Math.min(implicitWidth, 110)
         }
       }
     }
@@ -503,366 +488,433 @@ Rectangle {
       spacing: Style.space(12)
 
       // ------------------------------------------------------ quick toggles
-      HeaderRow { title: "QUICK TOGGLES" }
-
-      QuickToggle {
-        glyph: root.glyphDnd
-        label: "Do not disturb"
+      SectionHeader {
+        title: "QUICK TOGGLES"
         fg: root.fg
         fontFamily: root.fontFamily
-        checked: root.notifService ? root.notifService.doNotDisturb === true : false
-        onToggled: function(next) { if (root.notifService) root.notifService.setDoNotDisturb(next) }
       }
 
-      QuickToggle {
-        glyph: root.glyphNight
-        label: "Night light"
-        fg: root.fg
-        fontFamily: root.fontFamily
-        checked: root.nightService ? root.nightService.enabled === true : false
-        onToggled: function(next) { if (root.nightService) root.nightService.setNightlight(next) }
-      }
+      Pane {
+        height: togglesRow.implicitHeight + 20
 
-      QuickToggle {
-        glyph: root.glyphIdle
-        label: "Stay awake"
-        fg: root.fg
-        fontFamily: root.fontFamily
-        checked: root.idleService ? root.idleService.stayAwake === true : false
-        onToggled: function(next) { if (root.idleService) root.idleService.setIdleEnabled(!next) }
-      }
+        Row {
+          id: togglesRow
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.top: parent.top
+          anchors.topMargin: 10
+          spacing: 16
 
-      QuickToggle {
-        glyph: root.wifiState === "enabled" ? root.glyphWifi : root.glyphWifiOff
-        label: "Wi-Fi"
-        fg: root.fg
-        fontFamily: root.fontFamily
-        checked: root.wifiState === "enabled"
-        onToggled: function(next) {
-          if (root.wifiState !== "enabled" && root.wifiState !== "disabled") return
-          wifiToggleProc.command = ["/usr/sbin/nmcli", "radio", "wifi", next ? "on" : "off"]
-          wifiToggleProc.running = true
-        }
-      }
-      QuickToggle {
-        glyph: root.glyphBt
-        label: "Bluetooth"
-        fg: root.fg
-        fontFamily: root.fontFamily
-        checked: root.btPowered
-        onToggled: function(next) {
-          root.btError = ""
-          if (next) {
-            // A soft rfkill block (fn-key airplane mode) leaves bluetoothctl
-            // with no controller to power on; unblock first, then retry until
-            // the adapter registers with bluetoothd.
-            btToggleProc.command = ["/bin/sh", "-c",
-              "/usr/sbin/rfkill unblock bluetooth; n=0; " +
-              "until /usr/bin/bluetoothctl power on 2>/dev/null; do " +
-              "n=$((n+1)); [ $n -ge 20 ] && exit 1; /usr/sbin/sleep 0.3; done"]
-          } else {
-            btToggleProc.command = ["/usr/bin/bluetoothctl", "power", "off"]
+          QuickToggle {
+            glyph: root.glyphDnd
+            label: "DND"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            checked: root.notifService ? root.notifService.doNotDisturb === true : false
+            onToggled: function(next) { if (root.notifService) root.notifService.setDoNotDisturb(next) }
           }
-          btToggleProc.running = true
+
+          QuickToggle {
+            glyph: root.glyphNight
+            label: "Night"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            checked: root.nightService ? root.nightService.enabled === true : false
+            onToggled: function(next) { if (root.nightService) root.nightService.setNightlight(next) }
+          }
+
+          QuickToggle {
+            glyph: root.glyphIdle
+            label: "Awake"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            checked: root.idleService ? root.idleService.stayAwake === true : false
+            onToggled: function(next) { if (root.idleService) root.idleService.setIdleEnabled(!next) }
+          }
+
+          QuickToggle {
+            glyph: root.wifiState === "enabled" ? root.glyphWifi : root.glyphWifiOff
+            label: "Wi-Fi"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            checked: root.wifiState === "enabled"
+            onToggled: function(next) {
+              if (root.wifiState !== "enabled" && root.wifiState !== "disabled") return
+              wifiToggleProc.command = ["/usr/sbin/nmcli", "radio", "wifi", next ? "on" : "off"]
+              wifiToggleProc.running = true
+            }
+          }
+
+          QuickToggle {
+            glyph: root.glyphBt
+            label: "BT"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            checked: root.btPowered
+            onToggled: function(next) {
+              root.btError = ""
+              if (next) {
+                // A soft rfkill block (fn-key airplane mode) leaves bluetoothctl
+                // with no controller to power on; unblock first, then retry until
+                // the adapter registers with bluetoothd.
+                btToggleProc.command = ["/bin/sh", "-c",
+                  "/usr/sbin/rfkill unblock bluetooth; n=0; " +
+                  "until /usr/bin/bluetoothctl power on 2>/dev/null; do " +
+                  "n=$((n+1)); [ $n -ge 20 ] && exit 1; /usr/sbin/sleep 0.3; done"]
+              } else {
+                btToggleProc.command = ["/usr/bin/bluetoothctl", "power", "off"]
+              }
+              btToggleProc.running = true
+            }
+          }
         }
       }
 
       // ------------------------------------------------------------- output
-      HeaderRow { title: "OUTPUT" }
+      SectionHeader {
+        title: "OUTPUT"
+        fg: root.fg
+        fontFamily: root.fontFamily
+      }
 
-      // Master volume
-      Row {
-        width: parent.width
-        visible: root.sinkReady
-        spacing: Style.space(10)
-        leftPadding: Style.space(2)
+      Pane {
+        height: dialsRow.implicitHeight + 20
 
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          text: root.sinkMuted ? root.glyphVolMuted : root.glyphVol
-          textFormat: Text.PlainText
-          color: root.sinkMuted ? root.dim : root.fg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.icon
+        Row {
+          id: dialsRow
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.top: parent.top
+          anchors.topMargin: 10
+          spacing: 34
 
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
+          Dial {
+            glyph: root.glyphVol
+            mutedGlyph: root.glyphVolMuted
+            muted: root.sinkMuted
+            caption: Math.round((root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0) * 100) + "%"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            visible: root.sinkReady
+            onActivated: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
+            onMoved: function(d) {
+              if (!root.sink || !root.sink.audio) return
+              var v = Math.max(0, Math.min(1, (Number(root.sink.audio.volume) || 0) + d))
+              root.sink.audio.volume = v
+            }
+          }
+
+          Dial {
+            glyph: root.glyphBri
+            caption: Math.round(Math.max(0, Math.min(1, root.briValue)) * 100) + "%"
+            accent: root.accent
+            fg: root.fg
+            fontFamily: root.fontFamily
+            visible: root.briMax > 0 || root.briDisplay >= 0
+            onMoved: function(d) {
+              root.setBrightness(Math.max(0.01, Math.min(1, root.briValue + d)))
+            }
           }
         }
 
-        HSlider {
-          id: volSlider
-          width: parent.width - Style.space(64)
-          anchors.verticalCenter: parent.verticalCenter
-          fg: root.fg
-          value: root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0
-          onMoved: function(v) { if (root.sink && root.sink.audio) root.sink.audio.volume = v }
-        }
-
         Text {
-          anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(40)
-          text: Math.round((root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0) * 100) + "%"
-          textFormat: Text.PlainText
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          horizontalAlignment: Text.AlignRight
-        }
-      }
-
-      // Brightness
-      Row {
-        width: parent.width
-        visible: root.briMax > 0 || root.briDisplay >= 0
-        spacing: Style.space(10)
-        leftPadding: Style.space(2)
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          text: root.glyphBri
+          anchors.centerIn: parent
+          visible: !root.sinkReady && !(root.briMax > 0 || root.briDisplay >= 0)
+          text: "No output devices"
           textFormat: Text.PlainText
           color: root.fg
+          opacity: 0.5
           font.family: root.fontFamily
-          font.pixelSize: Style.font.icon
-        }
-
-        HSlider {
-          width: parent.width - Style.space(64)
-          anchors.verticalCenter: parent.verticalCenter
-          fg: root.fg
-          value: root.briValue
-          onMoved: function(v) { root.setBrightness(v) }
-        }
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(40)
-          text: Math.round(Math.max(0, Math.min(1, root.briValue)) * 100) + "%"
-          textFormat: Text.PlainText
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          horizontalAlignment: Text.AlignRight
+          font.pixelSize: 11
         }
       }
 
       // ------------------------------------------------------------- network
-      HeaderRow {
+      SectionHeader {
         title: "NETWORK"
-        showRefresh: true
-        onRefreshed: { root.refreshWifi(); root.refreshBt() }
-      }
+        fg: root.fg
+        fontFamily: root.fontFamily
 
-      Text {
-        width: parent.width
-        visible: root.wifiError !== ""
-        text: root.wifiError
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-      }
+        Text {
+          text: root.glyphRefresh
+          textFormat: Text.PlainText
+          font.family: root.fontFamily
+          font.pixelSize: 13
+          color: root.fg
+          opacity: netRefreshMa.containsMouse ? 1.0 : 0.6
 
-      // Wi-Fi networks
-      Column {
-        width: parent.width
-        spacing: Style.space(2)
-        visible: root.wifiState === "enabled"
-
-        Repeater {
-          model: root.wifiNetworks
-
-          delegate: Rectangle {
-            id: netRow
-
-            required property var modelData
-
-            width: parent.width
-            height: Style.space(30)
-            radius: Style.space(6)
-            color: netMa.containsMouse ? Style.hoverFill : "transparent"
-
-            Text {
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.glyphWifi
-              textFormat: Text.PlainText
-              color: netRow.modelData.active ? Color.accent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Text {
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(30)
-              anchors.right: signalText.left
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: netRow.modelData.ssid
-              textFormat: Text.PlainText
-              color: root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              elide: Text.ElideRight
-            }
-
-            Text {
-              id: signalText
-              anchors.right: activeTick.visible ? activeTick.left : parent.right
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: netRow.modelData.signal + "%"
-              textFormat: Text.PlainText
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Text {
-              id: activeTick
-              anchors.right: parent.right
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: "󰄬"
-              textFormat: Text.PlainText
-              color: Color.accent
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              visible: netRow.modelData.active
-            }
-
-            MouseArea {
-              id: netMa
-              anchors.fill: parent
-              hoverEnabled: true
-            }
+          MouseArea {
+            id: netRefreshMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { root.refreshWifi(); root.refreshBt() }
           }
         }
       }
 
-      Text {
-        width: parent.width
-        visible: root.wifiState === "disabled"
-        text: "Wi-Fi is off"
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        leftPadding: Style.space(8)
-      }
+      Pane {
+        height: netPanel.implicitHeight + 20
 
-      Text {
-        width: parent.width
-        visible: root.wifiState === "enabled" && root.wifiNetworks.length === 0 && !wifiListProc.running
-        text: "No networks found"
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        leftPadding: Style.space(8)
-      }
+        Column {
+          id: netPanel
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.topMargin: 10
+          spacing: 4
 
-      Text {
-        width: parent.width
-        visible: root.btError !== ""
-        text: root.btError
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-      }
+          BlackPanel {
+            height: wifiCol.implicitHeight > 0 ? wifiCol.implicitHeight + 8 : 0
+            visible: wifiCol.implicitHeight > 0
 
-      // Bluetooth devices
-      Column {
-        width: parent.width
-        spacing: Style.space(2)
-        visible: root.btPowered && root.btDevices.length > 0
-
-        Repeater {
-          model: root.btDevices
-
-          delegate: Rectangle {
-            id: btRow
-
-            required property var modelData
-
-            width: parent.width
-            height: Style.space(30)
-            radius: Style.space(6)
-            color: "transparent"
-
-            Text {
+            Column {
+              id: wifiCol
               anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.glyphBt
-              textFormat: Text.PlainText
-              color: Color.accent
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Text {
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(30)
               anchors.right: parent.right
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: btRow.modelData.name
-              textFormat: Text.PlainText
-              color: root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              elide: Text.ElideRight
+              anchors.top: parent.top
+              anchors.topMargin: 4
+              spacing: 2
+              visible: root.wifiState === "enabled" && root.wifiNetworks.length > 0
+
+              Repeater {
+                model: root.wifiNetworks
+
+                delegate: Rectangle {
+                  id: netRow
+
+                  required property var modelData
+
+                  width: parent.width
+                  height: 28
+                  radius: 6
+                  color: netMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+
+                  Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.glyphWifi
+                    textFormat: Text.PlainText
+                    color: netRow.modelData.active ? root.accent : root.fg
+                    opacity: netRow.modelData.active ? 1.0 : 0.55
+                    font.family: root.fontFamily
+                    font.pixelSize: 12
+                  }
+
+                  Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 30
+                    anchors.right: signalText.left
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: netRow.modelData.ssid
+                    textFormat: Text.PlainText
+                    color: root.fg
+                    font.family: root.fontFamily
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    id: signalText
+                    anchors.right: activeTick.visible ? activeTick.left : parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: netRow.modelData.signal + "%"
+                    textFormat: Text.PlainText
+                    color: root.fg
+                    opacity: 0.5
+                    font.family: root.fontFamily
+                    font.pixelSize: 10
+                  }
+
+                  Text {
+                    id: activeTick
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "󰄬"
+                    textFormat: Text.PlainText
+                    color: root.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: 12
+                    visible: netRow.modelData.active
+                  }
+
+                  MouseArea {
+                    id: netMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                  }
+                }
+              }
             }
           }
-        }
-      }
 
-      Text {
-        width: parent.width
-        visible: root.btPowered && root.btDevices.length === 0
-        text: "No connected devices"
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        leftPadding: Style.space(8)
+          Text {
+            width: parent.width
+            visible: root.wifiState === "disabled"
+            text: "Wi-Fi is off"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+
+          Text {
+            width: parent.width
+            visible: root.wifiState === "enabled" && root.wifiNetworks.length === 0 && !wifiListProc.running
+            text: "No networks found"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+
+          Text {
+            width: parent.width
+            visible: root.wifiError !== ""
+            text: root.wifiError
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+
+          // Bluetooth devices — one black panel listing connected devices.
+          BlackPanel {
+            height: root.btPowered && root.btDevices.length > 0 ? btCol.implicitHeight + 8 : 0
+            visible: root.btPowered && root.btDevices.length > 0
+
+            Column {
+              id: btCol
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              anchors.topMargin: 4
+              spacing: 2
+
+              Repeater {
+                model: root.btDevices
+
+                delegate: Rectangle {
+                  id: btRow
+
+                  required property var modelData
+
+                  width: parent.width
+                  height: 28
+                  radius: 6
+                  color: "transparent"
+
+                  Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.glyphBt
+                    textFormat: Text.PlainText
+                    color: root.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: 12
+                  }
+
+                  Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 30
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: btRow.modelData.name
+                    textFormat: Text.PlainText
+                    color: root.fg
+                    font.family: root.fontFamily
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            width: parent.width
+            visible: root.btPowered && root.btDevices.length === 0
+            text: "No connected devices"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+
+          Text {
+            width: parent.width
+            visible: root.btError !== ""
+            text: root.btError
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+        }
       }
 
       // -------------------------------------------------------------- system
-      HeaderRow { title: "SYSTEM" }
-
-      Grid {
-        width: parent.width
-        columns: 2
-        columnSpacing: Style.space(8)
-        rowSpacing: Style.space(8)
-
-        SysChip { icon: root.glyphCpu; label: "CPU"; value: root.cpuPerc + "%" }
-        SysChip { icon: root.glyphRam; label: "MEMORY"; value: root.ramPerc + "%" }
-        SysChip { icon: root.glyphDisk; label: "DISK /"; value: root.diskText === "" ? "…" : root.diskText }
-        SysChip {
-          icon: root.glyphNet
-          label: "NETWORK"
-          value: "↓" + root.fmtRate(root.downRate) + " ↑" + root.fmtRate(root.upRate)
-        }
+      SectionHeader {
+        title: "SYSTEM"
+        fg: root.fg
+        fontFamily: root.fontFamily
       }
 
-      Text {
-        width: parent.width
-        visible: root.uptimeText !== ""
-        text: root.uptimeText
-        textFormat: Text.PlainText
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        leftPadding: Style.space(2)
+      Pane {
+        height: sysGrid.implicitHeight + 30
+
+        Grid {
+          id: sysGrid
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.top: parent.top
+          anchors.topMargin: 10
+          width: parent.width - 16
+          columns: 2
+          columnSpacing: 8
+          rowSpacing: 8
+
+          SysPanel { icon: root.glyphCpu; label: "CPU"; value: root.cpuPerc + "%" }
+          SysPanel { icon: root.glyphRam; label: "MEMORY"; value: root.ramPerc + "%" }
+          SysPanel { icon: root.glyphDisk; label: "DISK /"; value: root.diskText === "" ? "…" : root.diskText }
+          SysPanel {
+            icon: root.glyphNet
+            label: "NETWORK"
+            value: "↓" + root.fmtRate(root.downRate) + " ↑" + root.fmtRate(root.upRate)
+          }
+        }
+
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: 8
+          visible: root.uptimeText !== ""
+          text: root.uptimeText
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.5
+          font.family: root.fontFamily
+          font.pixelSize: 10
+        }
       }
 
       // Breathing room at the bottom.

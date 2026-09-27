@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
+import Quickshell.Widgets
 import qs.Commons
 import qs.Ui
 
@@ -16,10 +17,11 @@ Rectangle {
   color: "transparent"
 
   property var shell: null        // bar.shell, to reach omarchy.media
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  property color accent: "#3ecf5b"
   property string fontFamily: Style.font.family
 
-  readonly property color dim: Qt.darker(fg, 1.55)
+  readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
 
   // Mpris fallback
   readonly property var players: Mpris.players ? Mpris.players.values : []
@@ -54,6 +56,8 @@ Rectangle {
   // None -> Track -> Playlist -> None.
   readonly property bool shuffleOn: activePlayer && activePlayer.shuffleSupported ? activePlayer.shuffle === true : false
   readonly property int loopState: activePlayer ? Number(activePlayer.loopState) : 0
+  readonly property string glyphVol: "󰕾"
+  readonly property string glyphVolMuted: "󰸈"
   readonly property string glyphShuffle: "󰒡"
   readonly property string glyphRepeat: "󰑷"
   readonly property string glyphRepeatOnce: "󰑹"
@@ -188,40 +192,108 @@ Rectangle {
         topPadding: Style.space(30)
       }
 
-      // Art + track info
+      // Art + track info — ruixen vinyl: a circular disc (slow spin while
+      // playing) inside a full-circle progress ring. The ring's Canvas
+      // repaints off the progress timer below.
       Row {
         width: parent.width
         visible: root.hasPlayer
         spacing: Style.space(12)
 
-        Rectangle {
-          width: Style.space(96)
-          height: Style.space(96)
-          radius: Style.space(4)
-          color: root.localArtUrl.length > 0 ? "transparent" : Util.alpha(root.fg, 0.1)
+        Item {
+          width: Style.space(108)
+          height: Style.space(108)
+          anchors.verticalCenter: parent.verticalCenter
 
-          Image {
+          // Full-circle progress ring: track = unplayed remainder only,
+          // accent arc up to the head, thick white tip tick — the dial
+          // treatment, opened to a full 360deg sweep.
+          Canvas {
+            id: discRing
             anchors.fill: parent
-            visible: root.localArtUrl.length > 0
-            source: root.localArtUrl
-            fillMode: Image.PreserveAspectCrop
-            smooth: true
+
+            readonly property real ratio: {
+              if (root.lengthSec <= 0) return 0
+              var r = root.positionSec / root.lengthSec
+              return isFinite(r) ? Math.max(0, Math.min(1, r)) : 0
+            }
+            onRatioChanged: requestPaint()
+
+            onPaint: {
+              var ctx = getContext("2d")
+              ctx.reset()
+              var cx = width / 2, cy = height / 2
+              var r = width / 2 - 4
+              var start = -Math.PI / 2
+              var end = start + discRing.ratio * Math.PI * 2
+              var gapRad = 5 / r
+              ctx.lineWidth = 4
+              ctx.lineCap = "round"
+              ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.15)
+              ctx.beginPath()
+              ctx.arc(cx, cy, r, Math.min(start + Math.PI * 2, end + gapRad), start + Math.PI * 2)
+              ctx.stroke()
+              if (discRing.ratio > 0) {
+                ctx.strokeStyle = root.accent
+                ctx.beginPath()
+                ctx.arc(cx, cy, r, start, Math.max(start, end - gapRad))
+                ctx.stroke()
+              }
+              ctx.lineWidth = 5
+              ctx.strokeStyle = "#ffffff"
+              ctx.beginPath()
+              ctx.moveTo(cx + (r - 2) * Math.cos(end), cy + (r - 2) * Math.sin(end))
+              ctx.lineTo(cx + (r + 3) * Math.cos(end), cy + (r + 3) * Math.sin(end))
+              ctx.stroke()
+            }
           }
 
-          Text {
-            visible: root.localArtUrl.length === 0
+          // Plain Rectangle.clip doesn't follow radius — ClippingRectangle
+          // does (the exact gotcha the notch's own comments call out).
+          ClippingRectangle {
+            width: Style.space(92)
+            height: Style.space(92)
             anchors.centerIn: parent
-            text: "󰝚"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.6
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.displayLarge
+            radius: width / 2
+            color: root.localArtUrl.length > 0 ? "transparent" : Util.alpha(root.fg, 0.1)
+
+            Image {
+              id: discImage
+              anchors.fill: parent
+              visible: root.localArtUrl.length > 0
+              source: root.localArtUrl
+              fillMode: Image.PreserveAspectCrop
+              smooth: true
+              asynchronous: true
+
+              // Slow vinyl-style spin while playing (~28s/rev). Rotates
+              // the Image itself, never the clip rectangle, so the
+              // circle's antialiased edge stays put while pixels move.
+              RotationAnimation on rotation {
+                running: root.playing
+                loops: Animation.Infinite
+                from: 0
+                to: 360
+                duration: 28000
+                onRunningChanged: if (!running) discImage.rotation = 0
+              }
+            }
+
+            Text {
+              visible: root.localArtUrl.length === 0
+              anchors.centerIn: parent
+              text: "󰝚"
+              textFormat: Text.PlainText
+              color: root.fg
+              opacity: 0.6
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.displayLarge
+            }
           }
         }
 
         Column {
-          width: parent.width - Style.space(96) - Style.space(12)
+          width: parent.width - Style.space(108) - Style.space(12)
           spacing: Style.space(4)
           anchors.verticalCenter: parent.verticalCenter
 
@@ -305,7 +377,7 @@ Rectangle {
                 return parent.width * Math.min(1, r)
               }
               radius: parent.radius
-              color: Color.accent
+              color: root.accent
             }
           }
 
@@ -377,7 +449,7 @@ Rectangle {
           for (var i = 0; i < levels.length; i++) {
             var v = Math.max(0, Math.min(1, levels[i]))
             var h = Math.max(2, v * height)
-            ctx.fillStyle = Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.30 + 0.70 * v)
+            ctx.fillStyle = Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.30 + 0.70 * v)
             ctx.fillRect((offset + i) * bw + 1, height - h, Math.max(1, bw - 2), h)
           }
         }
@@ -401,7 +473,7 @@ Rectangle {
             visible: root.shuffleOn
             text: "•"
             textFormat: Text.PlainText
-            color: Color.accent
+            color: root.accent
             font.pixelSize: Style.font.subtitle
             anchors.verticalCenterOffset: Style.space(11)
           }
@@ -448,7 +520,7 @@ Rectangle {
             visible: root.loopState !== 0
             text: "•"
             textFormat: Text.PlainText
-            color: Color.accent
+            color: root.accent
             font.pixelSize: Style.font.subtitle
             anchors.verticalCenterOffset: Style.space(11)
           }
@@ -461,10 +533,10 @@ Rectangle {
         spacing: Style.space(8)
         visible: root.sinkStreams.length > 0
 
-        PanelSectionHeader {
+        SectionHeader {
           width: parent.width
-          text: "APP VOLUME"
-          foreground: root.fg
+          title: "APP VOLUME"
+          fg: root.fg
           fontFamily: root.fontFamily
         }
 

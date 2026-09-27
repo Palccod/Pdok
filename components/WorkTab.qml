@@ -19,11 +19,12 @@ Rectangle {
 
   property var svc: null
   property var bar: null
-  property color fg: Color.foreground
+  property color fg: "#ffffff"
+  property color accent: "#3ecf5b"
+  property color urgent: "#e05252"
   property string fontFamily: Style.font.family
 
-  readonly property color accent: Color.accent
-  readonly property color dim: Qt.darker(fg, 1.55)
+  readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
 
   // Nerd Font glyphs, same set the Git panel draws with.
   readonly property string glyphCommit: ""
@@ -56,7 +57,6 @@ Rectangle {
     id: copyProc
   }
 
-  readonly property color urgent: Color.urgent
 
   readonly property var openWork: svc ? svc.ghOpenWork : ({ review: 0, assignedPrs: 0, assignedIssues: 0, authoredIssues: 0, authoredPrs: [] })
 
@@ -123,11 +123,11 @@ Rectangle {
         width: parent.width
         height: ghHeader.implicitHeight
 
-        PanelSectionHeader {
+        SectionHeader {
           id: ghHeader
           anchors.left: parent.left
-          text: "GITHUB"
-          foreground: root.fg
+          title: "GITHUB"
+          fg: root.fg
           fontFamily: root.fontFamily
         }
 
@@ -456,10 +456,10 @@ Rectangle {
         spacing: Style.space(8)
         visible: yearGraph.visible
 
-        PanelSectionHeader {
+        SectionHeader {
           width: parent.width
-          text: "OPEN WORK"
-          foreground: root.fg
+          title: "OPEN WORK"
+          fg: root.fg
           fontFamily: root.fontFamily
         }
 
@@ -515,10 +515,10 @@ Rectangle {
         spacing: Style.space(6)
         visible: yearGraph.visible
 
-        PanelSectionHeader {
+        SectionHeader {
           width: parent.width
-          text: "YOUR OPEN PRS"
-          foreground: root.fg
+          title: "YOUR OPEN PRS"
+          fg: root.fg
           fontFamily: root.fontFamily
         }
 
@@ -611,32 +611,33 @@ Rectangle {
       // Section: recent commits
       Item {
         width: parent.width
-        height: commitsHeader.implicitHeight
+        height: commitsHeader.height
 
-        PanelSectionHeader {
+        SectionHeader {
           id: commitsHeader
           anchors.left: parent.left
-          text: "RECENT COMMITS"
-          foreground: root.fg
-          fontFamily: root.fontFamily
-        }
-
-        Text {
           anchors.right: parent.right
-          anchors.baseline: commitsHeader.baseline
-          text: root.glyphRefresh
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          color: root.svc && root.svc.ghRefreshing ? root.dim : root.fg
-          opacity: root.svc && root.svc.ghRefreshing ? 0.4 : 0.8
+          title: "RECENT COMMITS"
+          fg: root.fg
+          fontFamily: root.fontFamily
 
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: if (root.svc) root.svc.refreshGithub()
+          Text {
+            text: root.glyphRefresh
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
+            font.pixelSize: 13
+            color: root.svc && root.svc.ghRefreshing ? root.dim : root.fg
+            opacity: root.svc && root.svc.ghRefreshing ? 0.4 : 0.8
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: if (root.svc) root.svc.refreshGithub()
+            }
           }
         }
+
       }
 
       Text {
