@@ -403,9 +403,14 @@ Rectangle {
   // holding black sub-panels (radius 8) — the grey only ever shows as the
   // gutter around/between the black panels.
   component Pane: Rectangle {
+    // The notch's card: transparent fill + 1.5px white-0.14 outline;
+    // the quick-controls pane overrides to 2.5px / radius 14.
+    property real borderWidth: 1.5
     width: parent ? parent.width : 0
     radius: 10
-    color: Qt.rgba(1, 1, 1, 0.06)
+    color: "transparent"
+    border.color: Qt.rgba(1, 1, 1, 0.14)
+    border.width: borderWidth
     clip: true
     height: childrenRect.height + 16
   }
@@ -495,18 +500,17 @@ Rectangle {
       }
 
       Pane {
-        height: togglesRow.implicitHeight + 20
+        borderWidth: 2.5
+        radius: 14
+        height: 60
 
         Row {
           id: togglesRow
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.top: parent.top
-          anchors.topMargin: 10
-          spacing: 16
+          anchors.centerIn: parent
+          spacing: 8
 
           QuickToggle {
             glyph: root.glyphDnd
-            label: "DND"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
@@ -516,7 +520,6 @@ Rectangle {
 
           QuickToggle {
             glyph: root.glyphNight
-            label: "Night"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
@@ -526,7 +529,6 @@ Rectangle {
 
           QuickToggle {
             glyph: root.glyphIdle
-            label: "Awake"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
@@ -536,7 +538,6 @@ Rectangle {
 
           QuickToggle {
             glyph: root.wifiState === "enabled" ? root.glyphWifi : root.glyphWifiOff
-            label: "Wi-Fi"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
@@ -550,7 +551,6 @@ Rectangle {
 
           QuickToggle {
             glyph: root.glyphBt
-            label: "BT"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
