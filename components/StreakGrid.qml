@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Ui
 
 // GitHub-style contribution grid: small fixed-size cells, one column per
 // week for a full trailing year, 7 rows Mon..Sun. Green like the reference —
@@ -48,6 +49,17 @@ Rectangle {
       if (prev.getMonth() === d.getMonth()) return ""
     }
     return Qt.formatDate(d, "MMM")
+  }
+
+  // Hover text for a grid cell: how many tasks were done, and when.
+  function tooltipFor(offset) {
+    if (offset < 0) return ""
+    var d = new Date()
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - offset)
+    var when = Qt.formatDate(d, "MMM d, yyyy")
+    var n = root.svc ? root.svc.dayDoneCount(offset) : 0
+    if (n <= 0) return "No tasks done on " + when
+    return n + (n === 1 ? " task done on " : " tasks done on ") + when
   }
 
   // Show a label only if it keeps ~three columns of clear space from the
@@ -150,6 +162,8 @@ Rectangle {
           y: 0
           text: root.monthShown(index) ? root.monthName(index) : ""
           visible: root.monthShown(index)
+            && x >= hscroll.contentX + 2
+            && x + implicitWidth <= hscroll.contentX + hscroll.width - 2
           textFormat: Text.PlainText
           color: root.fg
           opacity: 0.45
@@ -164,6 +178,10 @@ Rectangle {
         id: gridArea
         width: root.gridW
         height: root.gridH
+
+        property int hoverOffset: -1
+        property real hoverMX: 0
+        property real hoverMY: 0
 
       Repeater {
         model: root.weeks * 7
@@ -194,6 +212,42 @@ Rectangle {
 
           Behavior on color { ColorAnimation { duration: 300 } }
         }
+      }
+
+      MouseArea {
+        id: gridHover
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+
+        onPositionChanged: function(mouse) {
+          var col = Math.floor(mouse.x / root.step)
+          var row = Math.floor(mouse.y / root.step)
+          if (col < 0 || col >= root.weeks || row < 0 || row >= 7) {
+            gridArea.hoverOffset = -1
+            return
+          }
+          gridArea.hoverMX = mouse.x
+          gridArea.hoverMY = mouse.y
+          gridArea.hoverOffset = root.dayOffset(row, col)
+        }
+        onExited: gridArea.hoverOffset = -1
+      }
+
+      PanelToolTip {
+        visible: gridHover.containsMouse && gridArea.hoverOffset >= 0
+          && root.tooltipFor(gridArea.hoverOffset) !== ""
+        text: root.tooltipFor(gridArea.hoverOffset)
+        fontFamily: root.fontFamily
+        delay: 120
+        // Park beside the cursor, flipping left near the right edge.
+        x: {
+          var w = width > 0 ? width : implicitWidth
+          return gridHover.mouseX + w + 10 <= gridArea.width
+            ? gridHover.mouseX + 10 : Math.max(0, gridHover.mouseX - w - 10)
+        }
+        y: Math.max(0, Math.min(gridArea.height - height,
+          gridHover.mouseY - height - 6))
       }
       }
     }

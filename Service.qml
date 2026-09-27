@@ -380,6 +380,15 @@ Item {
     return 0
   }
 
+  // Tasks completed `offset` days ago (0 = today), for the streak grid's
+  // hover tooltip.
+  function dayDoneCount(offset) {
+    if (offset < 0) return 0
+    var key = dayKey(offset)
+    var list = Array.isArray(daily.done[key]) ? daily.done[key] : []
+    return list.length
+  }
+
   function addTask(raw) {
     var t = cleanText(raw).slice(0, 200)
     if (!t || daily.tasks.length >= 100) return
