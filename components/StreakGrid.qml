@@ -126,6 +126,67 @@ Rectangle {
       }
     }
 
+    // Last seven days at a glance: completed-task counts under day
+    // initials, today highlighted. Complements the color-only year grid.
+    Item {
+      id: weekStrip
+      width: parent.width
+      height: Style.space(30)
+
+      readonly property var days: {
+        var rows = []
+        for (var off = 6; off >= 0; off--) {
+          var d = new Date()
+          d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - off)
+          rows.push({
+            offset: off,
+            letter: Qt.formatDate(d, "ddd"),
+            count: root.svc ? root.svc.dayDoneCount(off) : 0
+          })
+        }
+        return rows
+      }
+
+      Repeater {
+        model: weekStrip.days
+
+        delegate: Item {
+          id: dayCell
+
+          required property var modelData
+          required property int index
+
+          x: index * (parent.width / 7)
+          width: parent.width / 7
+          height: parent.height
+
+          Column {
+            anchors.centerIn: parent
+
+            Text {
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: dayCell.modelData.letter
+              textFormat: Text.PlainText
+              opacity: dayCell.modelData.offset === 0 ? 0.85 : 0.4
+              font.family: root.fontFamily
+              font.pixelSize: 9
+              font.bold: dayCell.modelData.offset === 0
+            }
+
+            Text {
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: String(dayCell.modelData.count)
+              textFormat: Text.PlainText
+              color: dayCell.modelData.count > 0 ? root.doneGreen : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: dayCell.modelData.count > 0
+            }
+          }
+        }
+      }
+    }
+
     // Scrollable year: month labels and grid travel together; today's week
     // is on screen when the tab opens.
     Flickable {

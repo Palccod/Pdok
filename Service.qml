@@ -867,6 +867,7 @@ Item {
         rows.push({
           repo: repo,
           sha: short,
+          fullSha: sha,
           message: msg,
           time: time,
           url: "https://github.com/" + repo + "/commit/" + sha
@@ -913,12 +914,14 @@ Item {
           var r = d.ghCommits[i] || {}
           if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(r.repo || ""))) continue
           if (!/^[0-9a-f]{7,40}$/.test(String(r.sha || ""))) continue
+          var cached = String(r.sha || "")
           rows.push({
             repo: String(r.repo),
-            sha: String(r.sha).slice(0, 7),
+            sha: cached.slice(0, 7),
+            fullSha: /^[0-9a-f]{40}$/.test(cached) ? cached : cached,
             message: String(r.message || "").slice(0, 200),
             time: String(r.time || ""),
-            url: "https://github.com/" + String(r.repo) + "/commit/" + String(r.sha)
+            url: "https://github.com/" + String(r.repo) + "/commit/" + cached
           })
         }
         root.ghCommits = rows

@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -31,6 +32,29 @@ Rectangle {
   readonly property string glyphIssue: ""
   readonly property string glyphStreak: "󰈸"
   readonly property string glyphRefresh: "󰑐"
+  readonly property string glyphCopy: "󰆏"
+  readonly property string glyphCheck: "󰄬"
+
+  // Last copied commit; the row shows a check mark until the timer clears.
+  property string copiedSha: ""
+
+  function copySha(row) {
+    if (!row || !/^[0-9a-f]{40}$/.test(String(row.fullSha || ""))) return
+    copyProc.command = ["/usr/sbin/wl-copy", row.fullSha]
+    copyProc.running = true
+    root.copiedSha = row.sha
+    copiedTimer.restart()
+  }
+
+  Timer {
+    id: copiedTimer
+    interval: 1600
+    onTriggered: root.copiedSha = ""
+  }
+
+  Process {
+    id: copyProc
+  }
 
   readonly property color urgent: Color.urgent
 
