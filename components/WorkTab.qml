@@ -305,6 +305,18 @@ Rectangle {
                 text: yearGraph.tooltipFor(yearGraph.hoverIndex)
                 fontFamily: root.fontFamily
                 delay: 120
+                // Qt would center the popup over the whole canvas and bury
+                // the month ruler; park it beside the cursor instead,
+                // flipping to the left when the cell is near the right edge
+                // and clamped inside the grid.
+                x: {
+                  var w = width > 0 ? width : implicitWidth
+                  var left = gridHover.mouseX - w - 10
+                  return gridHover.mouseX + w + 10 <= grid.width
+                    ? gridHover.mouseX + 10 : Math.max(0, left)
+                }
+                y: Math.max(0, Math.min(grid.height - height,
+                  gridHover.mouseY - height - 6))
               }
             }
           }
