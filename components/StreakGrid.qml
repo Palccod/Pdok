@@ -176,6 +176,8 @@ Rectangle {
       // Grid
       Item {
         id: gridArea
+        // Below the month-label row; inside the Flickable nothing auto-flows.
+        y: Style.space(12)
         width: root.gridW
         height: root.gridH
 
