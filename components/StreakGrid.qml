@@ -4,10 +4,11 @@ import QtQuick
 import qs.Commons
 
 // GitHub-style contribution grid: small fixed-size cells, one column per
-// week (as many as fit the width, oldest left), 7 rows Mon..Sun. Green like
-// the reference — solid when a day's daily tasks were all completed,
-// translucent for partial days. Month labels across the top, Less/More
-// legend underneath.
+// week for a full trailing year, 7 rows Mon..Sun. Green like the reference —
+// solid when a day's daily tasks were all completed, translucent for partial
+// days. The year is wider than the drawer, so it scrolls horizontally
+// (landing on today); month labels ride the grid with collision suppression,
+// while the stats row and legend stay pinned.
 Rectangle {
   id: root
 
@@ -21,7 +22,7 @@ Rectangle {
   readonly property int cellSize: 11
   readonly property int gapSize: 3
   readonly property int step: cellSize + gapSize
-  readonly property int weeks: Math.max(10, Math.min(30, Math.floor((width + gapSize) / step)))
+  readonly property int weeks: 53
   readonly property int gridW: weeks * step - gapSize
   readonly property int gridH: 7 * step - gapSize
   // Weekday of today, Monday = 0.
@@ -35,7 +36,9 @@ Rectangle {
     return dow + (weeks - 1 - c) * 7 - r
   }
 
-  function monthLabel(col) {
+  // The month this column's Monday falls in, or "" when it continues the
+  // previous column's month.
+  function monthName(col) {
     var monOffset = dayOffset(0, col)
     var d = new Date()
     d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - monOffset)
@@ -45,6 +48,18 @@ Rectangle {
       if (prev.getMonth() === d.getMonth()) return ""
     }
     return Qt.formatDate(d, "MMM")
+  }
+
+  // Show a label only if it keeps ~three columns of clear space from the
+  // last one shown; year-boundary months one week apart would otherwise
+  // render as "SepOct".
+  function monthShown(col) {
+    if (monthName(col) === "") return false
+    var lastShown = -999
+    for (var c = 0; c < col; c++) {
+      if (monthName(c) !== "" && c - lastShown >= 3) lastShown = c
+    }
+    return col - lastShown >= 3
   }
 
   height: gridCol.implicitHeight
@@ -99,10 +114,31 @@ Rectangle {
       }
     }
 
-    // Month labels
-    Item {
-      width: root.gridW
-      height: Style.space(12)
+    // Scrollable year: month labels and grid travel together; today's week
+    // is on screen when the tab opens.
+    Flickable {
+      id: hscroll
+
+      width: parent.width
+      height: Style.space(12) + root.gridH
+      contentWidth: root.gridW
+      contentHeight: height
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      interactive: contentWidth > width
+
+      function scrollToEnd() {
+        contentX = Math.max(0, contentWidth - width)
+      }
+      Component.onCompleted: Qt.callLater(scrollToEnd)
+      onVisibleChanged: if (visible) Qt.callLater(scrollToEnd)
+
+      // Month labels
+      Item {
+        x: 0
+        y: 0
+        width: root.gridW
+        height: Style.space(12)
 
       Repeater {
         model: root.weeks
@@ -112,22 +148,22 @@ Rectangle {
 
           x: index * root.step
           y: 0
-          text: root.monthLabel(index)
+          text: root.monthShown(index) ? root.monthName(index) : ""
+          visible: root.monthShown(index)
           textFormat: Text.PlainText
           color: root.fg
           opacity: 0.45
           font.family: root.fontFamily
           font.pixelSize: 9
-          visible: text.length > 0
         }
       }
     }
 
-    // Grid
-    Item {
-      id: gridArea
-      width: root.gridW
-      height: root.gridH
+      // Grid
+      Item {
+        id: gridArea
+        width: root.gridW
+        height: root.gridH
 
       Repeater {
         model: root.weeks * 7
@@ -158,6 +194,7 @@ Rectangle {
 
           Behavior on color { ColorAnimation { duration: 300 } }
         }
+      }
       }
     }
 
