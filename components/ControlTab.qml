@@ -46,6 +46,8 @@ Rectangle {
   readonly property string glyphBt: "󰂯"
   readonly property string glyphVol: "󰕾"
   readonly property string glyphVolMuted: "󰸈"
+  readonly property string glyphMic: "󰍬"
+  readonly property string glyphMicMuted: "󰍭"
   readonly property string glyphBri: "󰃟"
   readonly property string glyphCpu: "󰻠"
   readonly property string glyphRam: "󰍛"
@@ -395,6 +397,11 @@ Rectangle {
   readonly property bool sinkReady: !!sink && !!sink.audio
   property bool sinkMuted: sinkReady ? sink.audio.muted === true : false
 
+  // Microphone (default source) — same treatment as the output dial.
+  readonly property var mic: Pipewire.defaultAudioSource
+  readonly property bool micReady: !!mic && !!mic.audio
+  property bool micMuted: micReady ? mic.audio.muted === true : false
+
   // `audio` (volume/mute) only populates once the sink is tracked — and the
   // registry itself only populates when a tracker watches the raw node list.
   PwObjectTracker { objects: Pipewire.nodes ? Pipewire.nodes.values : [] }
@@ -587,16 +594,13 @@ Rectangle {
 
         Row {
           id: dialsRow
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.top: parent.top
-          anchors.topMargin: 10
-          spacing: 34
+          anchors.centerIn: parent
+          spacing: 20
 
           Dial {
             glyph: root.glyphVol
             mutedGlyph: root.glyphVolMuted
             muted: root.sinkMuted
-            caption: Math.round((root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0) * 100) + "%"
             accent: root.accent
             fg: root.fg
             danger: root.danger
@@ -611,8 +615,24 @@ Rectangle {
           }
 
           Dial {
+            glyph: root.glyphMic
+            mutedGlyph: root.glyphMicMuted
+            muted: root.micMuted
+            accent: root.accent
+            fg: root.fg
+            danger: root.danger
+            fontFamily: root.fontFamily
+            visible: root.micReady
+            onActivated: if (root.mic && root.mic.audio) root.mic.audio.muted = !root.mic.audio.muted
+            onMoved: function(d) {
+              if (!root.mic || !root.mic.audio) return
+              var v = Math.max(0, Math.min(1, (Number(root.mic.audio.volume) || 0) + d))
+              root.mic.audio.volume = v
+            }
+          }
+
+          Dial {
             glyph: root.glyphBri
-            caption: Math.round(Math.max(0, Math.min(1, root.briValue)) * 100) + "%"
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
@@ -625,7 +645,7 @@ Rectangle {
 
         Text {
           anchors.centerIn: parent
-          visible: !root.sinkReady && !(root.briMax > 0 || root.briDisplay >= 0)
+          visible: !root.sinkReady && !root.micReady && !(root.briMax > 0 || root.briDisplay >= 0)
           text: "No output devices"
           textFormat: Text.PlainText
           color: root.fg

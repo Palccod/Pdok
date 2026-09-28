@@ -15,7 +15,6 @@ Rectangle {
   property string mutedGlyph: ""
   property bool muted: false
   property real value: 0          // 0..1
-  property string caption: ""
   property color accent: Color.accent
   property color fg: Color.foreground
   property color danger: Color.urgent
@@ -24,7 +23,7 @@ Rectangle {
   signal moved(real delta)
 
   width: 56
-  height: caption.length > 0 ? 56 + 18 : 56
+  height: 56
   radius: width / 2
   color: Qt.rgba(fg.r, fg.g, fg.b, 0.06)
 
@@ -79,7 +78,6 @@ Rectangle {
 
   Text {
     anchors.centerIn: parent
-    anchors.verticalCenterOffset: root.caption.length > 0 ? -6 : 0
     text: root.muted && root.mutedGlyph.length > 0 ? root.mutedGlyph : root.glyph
     textFormat: Text.PlainText
     // Semantic "muted/off" color, not theme-linked — same reasoning as the
@@ -87,19 +85,6 @@ Rectangle {
     color: root.muted && root.mutedGlyph.length > 0 ? root.danger : root.fg
     font.family: root.fontFamily
     font.pixelSize: 20
-  }
-
-  Text {
-    anchors.horizontalCenter: parent.horizontalCenter
-    anchors.bottom: parent.bottom
-    anchors.bottomMargin: 2
-    visible: root.caption.length > 0
-    text: root.caption
-    textFormat: Text.PlainText
-    color: root.fg
-    opacity: 0.5
-    font.family: root.fontFamily
-    font.pixelSize: 9
   }
 
   MouseArea {
