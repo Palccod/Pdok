@@ -11,8 +11,8 @@ Rectangle {
   id: root
 
   property string title: ""
-  property color fg: "#ffffff"
-  property string fontFamily: "JetBrainsMono Nerd Font"
+  property color fg: Color.foreground
+  property string fontFamily: Style.font.family
   default property alias trailing: trailingSlot.data
   signal refreshed()
 
@@ -56,6 +56,6 @@ Rectangle {
     anchors.right: parent.right
     anchors.rightMargin: 8
     height: 1
-    color: Qt.rgba(1, 1, 1, 0.14)
+    color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.14)
   }
 }

@@ -13,8 +13,8 @@ Rectangle {
   id: root
 
   property real value: 0
-  property color fg: "#ffffff"
-  property color accent: "#3ecf5b"
+  property color fg: Color.foreground
+  property color accent: Color.accent
   signal moved(real newValue)
 
   width: 120

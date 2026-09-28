@@ -15,7 +15,7 @@ Rectangle {
 
   property var files: []            // file:// URLs, whitelisted by the service
   property string dirLabel: ""      // active directory, for the empty state
-  property color fg: "#ffffff"
+  property color fg: Color.foreground
   property string fontFamily: Style.font.family
   property int intervalMs: 15000
 

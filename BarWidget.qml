@@ -19,12 +19,12 @@ Panel {
   // Own the IpcHandler so we can expose state/setSide next to open/close.
   manageIpc: false
 
-  // Ruixen-notch palette, hardcoded the way the notch itself does it:
-  // pure white text, 50% white muted, green accent, fixed red for
-  // muted/off states ("plain QML primitives, no design-token system").
-  readonly property color foreground: "#ffffff"
-  readonly property color accent: "#3ecf5b"
-  readonly property color danger: "#e05252"
+  // Theme-aware like the notch (which reads Color.accent for its cava
+  // colors): the bar's own foreground, the shell theme's accent, and the
+  // theme's urgent color for muted/off states.
+  readonly property color foreground: bar ? bar.barForeground : Color.foreground
+  readonly property color accent: Color.accent
+  readonly property color danger: Color.urgent
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // Shared per-shell service: daily state (tasks/todos/notes + gif deck)
@@ -336,8 +336,11 @@ Panel {
               width: (parent.width - tabRow.spacing * (root.tabs.length - 1)) / root.tabs.length
               height: parent.height
               radius: 12
-              color: root.tab === modelData.id ? Qt.rgba(1, 1, 1, 0.14)
-                   : (tabMa.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : "transparent")
+              color: {
+                var f = root.foreground
+                if (root.tab === modelData.id) return Qt.rgba(f.r, f.g, f.b, 0.14)
+                return tabMa.containsMouse ? Qt.rgba(f.r, f.g, f.b, 0.07) : "transparent"
+              }
               Behavior on color { ColorAnimation { duration: 120 } }
 
               Column {

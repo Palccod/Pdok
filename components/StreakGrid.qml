@@ -16,8 +16,8 @@ Rectangle {
   color: "transparent"
 
   property var svc: null
-  property color fg: "#ffffff"
-  readonly property color doneGreen: "#3ecf5b"
+  property color fg: Color.foreground
+  readonly property color doneGreen: Color.accent
   property string fontFamily: Style.font.family
 
 

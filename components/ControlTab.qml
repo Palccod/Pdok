@@ -17,8 +17,9 @@ Rectangle {
   color: "transparent"
 
   property var shell: null        // bar.shell, for first-party service access
-  property color fg: "#ffffff"
-  property color accent: "#3ecf5b"
+  property color fg: Color.foreground
+  property color accent: Color.accent
+  property color danger: Color.urgent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
@@ -409,7 +410,7 @@ Rectangle {
     width: parent ? parent.width : 0
     radius: 10
     color: "transparent"
-    border.color: Qt.rgba(1, 1, 1, 0.14)
+    border.color: Qt.rgba(fg.r, fg.g, fg.b, 0.14)
     border.width: borderWidth
     clip: true
     height: childrenRect.height + 16
@@ -419,7 +420,7 @@ Rectangle {
     width: parent ? parent.width - 16 : 0
     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
     radius: 8
-    color: "#000000"
+    color: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
   }
 
   component SysPanel: Rectangle {
@@ -431,7 +432,7 @@ Rectangle {
 
     // Two panels per Grid row; parent is the Grid.
     width: parent ? (parent.width - (parent.columnSpacing || 0)) / 2 : 0
-    color: "#000000"
+    color: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
     radius: 8
     height: 48
 
@@ -598,6 +599,7 @@ Rectangle {
             caption: Math.round((root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0) * 100) + "%"
             accent: root.accent
             fg: root.fg
+            danger: root.danger
             fontFamily: root.fontFamily
             visible: root.sinkReady
             onActivated: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
@@ -692,7 +694,7 @@ Rectangle {
                   width: parent.width
                   height: 28
                   radius: 6
-                  color: netMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                  color: netMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : "transparent"
 
                   Text {
                     anchors.left: parent.left

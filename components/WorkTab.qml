@@ -19,9 +19,9 @@ Rectangle {
 
   property var svc: null
   property var bar: null
-  property color fg: "#ffffff"
-  property color accent: "#3ecf5b"
-  property color urgent: "#e05252"
+  property color fg: Color.foreground
+  property color accent: Color.accent
+  property color urgent: Color.urgent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)

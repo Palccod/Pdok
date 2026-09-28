@@ -9,7 +9,7 @@ Rectangle {
   id: mediaBtn
 
   property string glyph: ""
-  property color fg: "#ffffff"
+  property color fg: Color.foreground
   property string fontFamily: Style.font.family
   property bool isPrimary: false
   signal clicked()

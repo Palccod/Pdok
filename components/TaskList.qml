@@ -13,9 +13,9 @@ Rectangle {
 
   property bool daily: true
   property var svc: null
-  property color fg: "#ffffff"
-  property color accent: "#3ecf5b"
-  property color danger: "#e05252"
+  property color fg: Color.foreground
+  property color accent: Color.accent
+  property color danger: Color.urgent
   property string fontFamily: Style.font.family
 
   readonly property var items: {

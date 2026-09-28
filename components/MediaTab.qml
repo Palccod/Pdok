@@ -17,8 +17,8 @@ Rectangle {
   color: "transparent"
 
   property var shell: null        // bar.shell, to reach omarchy.media
-  property color fg: "#ffffff"
-  property color accent: "#3ecf5b"
+  property color fg: Color.foreground
+  property color accent: Color.accent
   property string fontFamily: Style.font.family
 
   readonly property color dim: Qt.rgba(fg.r, fg.g, fg.b, 0.5)
@@ -79,31 +79,13 @@ Rectangle {
   }
 
   // ------------------------------------------------------------ visualizer
-  // Real output levels: sample the default sink's peak monitor into a
-  // scrolling bar buffer rendered on a Canvas. Nothing plays = flat line.
-  readonly property int vizBars: 52
-  readonly property var sinkNode: Pipewire.defaultAudioSink
-  property var vizLevels: []
-
-  PwNodePeakMonitor {
-    id: peakMonitor
-    node: root.sinkNode
-    enabled: root.visible && !!root.sinkNode
-  }
-
-  Timer {
-    interval: 40
-    running: root.visible && !!root.sinkNode
-    repeat: true
-    onTriggered: {
-      var p = Math.max(0, Math.min(1, Number(peakMonitor.peak) || 0))
-      // Sliding window: grow to vizBars, then drop the oldest sample.
-      var levels = root.vizLevels.slice()
-      levels.push(p)
-      if (levels.length > root.vizBars) levels = levels.slice(1)
-      root.vizLevels = levels
-      viz.requestPaint()
-    }
+  // The notch's CavaFeed: cava's native pipewire backend analysed into
+  // peak-normalized, EMA-smoothed levels; rendered below as mirrored bars
+  // (bass at both edges, treble center). Runs only while this tab is
+  // visible; a missing cava binary just means a flat, silent strip.
+  CavaFeed {
+    id: cavaFeed
+    enabled: root.visible
   }
 
   // ------------------------------------------------------------ app mixer
@@ -229,7 +211,7 @@ Rectangle {
               var gapRad = 5 / r
               ctx.lineWidth = 4
               ctx.lineCap = "round"
-              ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.15)
+              ctx.strokeStyle = Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.15)
               ctx.beginPath()
               ctx.arc(cx, cy, r, Math.min(start + Math.PI * 2, end + gapRad), start + Math.PI * 2)
               ctx.stroke()
@@ -240,7 +222,7 @@ Rectangle {
                 ctx.stroke()
               }
               ctx.lineWidth = 5
-              ctx.strokeStyle = "#ffffff"
+              ctx.strokeStyle = root.fg
               ctx.beginPath()
               ctx.moveTo(cx + (r - 2) * Math.cos(end), cy + (r - 2) * Math.sin(end))
               ctx.lineTo(cx + (r + 3) * Math.cos(end), cy + (r + 3) * Math.sin(end))
@@ -432,25 +414,53 @@ Rectangle {
         }
       }
 
-      // Output visualizer — newest sample at the right edge.
-      Canvas {
-        id: viz
+      // Output visualizer — the notch's mirrored cava bars: position i and
+      // its mirror read the SAME band, so bass sits on both edges and
+      // treble in the center, with a soft opacity fade on the outermost
+      // slots. 90ms height behavior smooths each bar.
+      Item {
+        id: cavaSlot
         width: parent.width
-        height: Style.space(56)
-        visible: !!root.sinkNode
+        height: Style.space(48)
 
-        onPaint: {
-          var ctx = getContext("2d")
-          ctx.clearRect(0, 0, width, height)
-          var n = root.vizBars
-          var bw = width / n
-          var levels = root.vizLevels
-          var offset = n - levels.length
-          for (var i = 0; i < levels.length; i++) {
-            var v = Math.max(0, Math.min(1, levels[i]))
-            var h = Math.max(2, v * height)
-            ctx.fillStyle = Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.30 + 0.70 * v)
-            ctx.fillRect((offset + i) * bw + 1, height - h, Math.max(1, bw - 2), h)
+        readonly property int displayBars: cavaFeed.bands * 2
+
+        function mirrorBandAt(i) {
+          return Math.min(i, cavaSlot.displayBars - 1 - i)
+        }
+
+        // Warm center, cool edges — the notch's bandColor() with both ends
+        // on the theme accent, brightened by the bar's own level.
+        function barColor(i, level) {
+          var mid = cavaSlot.displayBars / 2
+          var dist = cavaSlot.displayBars > 1 ? Math.abs(i - mid + 0.5) / mid : 0
+          var c = Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 1)
+          return Qt.lighter(c, 1 + 0.35 * (1 - dist))
+        }
+
+        function edgeFade(i) {
+          var d = Math.min(i, cavaSlot.displayBars - 1 - i)
+          return Math.max(0, Math.min(1, d / 2))
+        }
+
+        Repeater {
+          model: cavaSlot.displayBars
+
+          Rectangle {
+            required property int index
+
+            readonly property real slot: cavaSlot.width / cavaSlot.displayBars
+            readonly property real thick: Math.max(1, slot - 2)
+            readonly property real level: cavaFeed.levels[cavaSlot.mirrorBandAt(index)] || 0
+            width: thick
+            height: Math.max(2, level * cavaSlot.height)
+            radius: thick / 2
+            x: index * slot + (slot - thick) / 2
+            y: cavaSlot.height - height
+            color: cavaSlot.barColor(index, level)
+            opacity: cavaSlot.edgeFade(index)
+
+            Behavior on height { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
           }
         }
       }
