@@ -601,6 +601,7 @@ Rectangle {
             glyph: root.glyphVol
             mutedGlyph: root.glyphVolMuted
             muted: root.sinkMuted
+            value: root.sinkReady ? Number(root.sink.audio.volume) || 0 : 0
             accent: root.accent
             fg: root.fg
             danger: root.danger
@@ -618,6 +619,7 @@ Rectangle {
             glyph: root.glyphMic
             mutedGlyph: root.glyphMicMuted
             muted: root.micMuted
+            value: root.micReady ? Number(root.mic.audio.volume) || 0 : 0
             accent: root.accent
             fg: root.fg
             danger: root.danger
@@ -633,6 +635,7 @@ Rectangle {
 
           Dial {
             glyph: root.glyphBri
+            value: root.briValue
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily

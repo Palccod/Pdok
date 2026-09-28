@@ -50,9 +50,9 @@ Rectangle {
       // Gap around the tip: 6px converted to radians at this radius.
       var gapRad = 6 / r
       var trackStart = Math.min(startAngle + totalSweep, endAngle + gapRad)
-      ctx.lineWidth = 3
+      ctx.lineWidth = 4
       ctx.lineCap = "round"
-      ctx.strokeStyle = Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.15)
+      ctx.strokeStyle = Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.18)
       ctx.beginPath()
       ctx.arc(cx, cy, r, trackStart, startAngle + totalSweep)
       ctx.stroke()
