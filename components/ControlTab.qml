@@ -302,79 +302,76 @@ Rectangle {
   property var cpuLast: null
   property var netLast: null
 
+  // /proc samples via one fixed-constant shell line. The XHR file://
+  // reads this replaces were unreliable (silently empty across shell
+  // restarts); the df process right above proves the process path works.
+  Process {
+    id: procSampler
+    command: ["/bin/sh", "-c",
+      "head -n 1 /proc/stat; " +
+      "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; " +
+      "cat /proc/net/dev"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.parseProcSample(text, Date.now())
+    }
+  }
+
   Timer {
     interval: 2000
     running: root.visible
     repeat: true
-    triggeredOnStart: true
-    onTriggered: root.sampleProc()
+    onTriggered: if (!procSampler.running) procSampler.running = true
   }
 
-  function readProcFile(path, cb) {
-    var xhr = new XMLHttpRequest()
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState === XMLHttpRequest.DONE) cb(xhr.status === 200 ? xhr.responseText : "")
-    }
-    try { xhr.open("GET", "file://" + path); xhr.send() } catch (e) { cb("") }
-  }
+  function parseProcSample(body, now) {
+    var lines = String(body || "").split("\n")
 
-  function sampleProc() {
-    readProcFile("/proc/stat", function(body) {
-      var lines = String(body || "").split("\n")
-      var cpu = null
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i].indexOf("cpu ") === 0) {
-          var f = lines[i].slice(4).trim().split(/\s+/).map(Number)
-          if (f.length >= 4 && f.every(isFinite)) {
-            var idle = f[3] + (f.length > 4 ? f[4] : 0)
-            var total = 0
-            for (var j = 0; j < f.length; j++) total += f[j]
-            cpu = { idle: idle, total: total }
-          }
-          break
+    // CPU: first line is the aggregate counters.
+    if (lines.length > 0 && lines[0].indexOf("cpu ") === 0) {
+      var f = lines[0].slice(4).trim().split(/\s+/).map(Number)
+      if (f.length >= 4 && f.every(isFinite)) {
+        var idle = f[3] + (f.length > 4 ? f[4] : 0)
+        var total = 0
+        for (var j = 0; j < f.length; j++) total += f[j]
+        var cpu = { idle: idle, total: total }
+        if (root.cpuLast && cpu.total > root.cpuLast.total) {
+          var dt = cpu.total - root.cpuLast.total
+          var di = cpu.idle - root.cpuLast.idle
+          root.cpuPerc = Math.max(0, Math.min(100, Math.round((dt - di) / dt * 100)))
         }
+        root.cpuLast = cpu
       }
-      if (cpu && root.cpuLast && cpu.total > root.cpuLast.total) {
-        var dt = cpu.total - root.cpuLast.total
-        var di = cpu.idle - root.cpuLast.idle
-        root.cpuPerc = Math.max(0, Math.min(100, Math.round((dt - di) / dt * 100)))
-      }
-      if (cpu) root.cpuLast = cpu
-    })
+    }
 
-    readProcFile("/proc/meminfo", function(body) {
-      var total = 0, avail = 0
-      var lines = String(body || "").split("\n")
-      for (var i = 0; i < lines.length; i++) {
-        var m = /^(MemTotal|MemAvailable):\s+(\d+)\s+kB/.exec(lines[i])
-        if (!m) continue
-        if (m[1] === "MemTotal") total = Number(m[2])
-        else avail = Number(m[2])
-      }
-      if (total > 0 && avail > 0)
-        root.ramPerc = Math.max(0, Math.min(100, Math.round((total - avail) / total * 100)))
-    })
+    // Memory: the grep leaves exactly the two fields we need.
+    var memTotal = 0, memAvail = 0
+    for (var i = 1; i < lines.length; i++) {
+      var m = /^(MemTotal|MemAvailable):\s+(\d+)\s+kB/.exec(lines[i])
+      if (!m) continue
+      if (m[1] === "MemTotal") memTotal = Number(m[2])
+      else memAvail = Number(m[2])
+    }
+    if (memTotal > 0 && memAvail > 0)
+      root.ramPerc = Math.max(0, Math.min(100, Math.round((memTotal - memAvail) / memTotal * 100)))
 
-    readProcFile("/proc/net/dev", function(body) {
-      var rx = 0, tx = 0
-      var lines = String(body || "").split("\n")
-      for (var i = 2; i < lines.length; i++) {
-        var p = lines[i].split(":")
-        if (p.length < 2) continue
-        var iface = p[0].trim()
-        if (iface === "lo" || iface === "") continue
-        var f = p[1].trim().split(/\s+/).map(Number)
-        if (f.length < 9 || !isFinite(f[0]) || !isFinite(f[8])) continue
-        rx += f[0]; tx += f[8]
-      }
-      var now = Date.now()
-      if (root.netLast && now > root.netLast.at) {
-        var dt = (now - root.netLast.at) / 1000
-        root.downRate = Math.max(0, (rx - root.netLast.rx) / dt)
-        root.upRate = Math.max(0, (tx - root.netLast.tx) / dt)
-      }
-      root.netLast = { at: now, rx: rx, tx: tx }
-    })
+    // Network throughput: sum rx/tx bytes across every interface but lo.
+    var rx = 0, tx = 0
+    for (var k = 0; k < lines.length; k++) {
+      var p = lines[k].split(":")
+      if (p.length < 2) continue
+      var iface = p[0].trim()
+      if (iface === "lo" || iface === "") continue
+      var nf = p[1].trim().split(/\s+/).map(Number)
+      if (nf.length < 9 || !isFinite(nf[0]) || !isFinite(nf[8])) continue
+      rx += nf[0]; tx += nf[8]
+    }
+    if (root.netLast && now > root.netLast.at) {
+      var dts = (now - root.netLast.at) / 1000
+      root.downRate = Math.max(0, (rx - root.netLast.rx) / dts)
+      root.upRate = Math.max(0, (tx - root.netLast.tx) / dts)
+    }
+    root.netLast = { at: now, rx: rx, tx: tx }
   }
 
   function fmtBytes(n) {
@@ -693,6 +690,20 @@ Rectangle {
           anchors.topMargin: 10
           spacing: 4
 
+          Text {
+            width: parent.width
+            visible: root.wifiState === "enabled"
+            text: "WI-FI"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.45
+            font.family: root.fontFamily
+            font.pixelSize: 9
+            font.letterSpacing: 1
+            leftPadding: 2
+            topPadding: 2
+          }
+
           BlackPanel {
             height: wifiCol.implicitHeight > 0 ? wifiCol.implicitHeight + 8 : 0
             visible: wifiCol.implicitHeight > 0
@@ -763,11 +774,12 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "󰄬"
+                    text: "connected"
                     textFormat: Text.PlainText
                     color: root.accent
                     font.family: root.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: 10
+                    font.bold: true
                     visible: netRow.modelData.active
                   }
 
@@ -817,7 +829,21 @@ Rectangle {
             leftPadding: 8
           }
 
-          // Bluetooth devices — one black panel listing connected devices.
+          Text {
+            width: parent.width
+            visible: root.btPowered || root.btError !== ""
+            text: "BLUETOOTH"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.45
+            font.family: root.fontFamily
+            font.pixelSize: 9
+            font.letterSpacing: 1
+            leftPadding: 2
+            topPadding: 2
+          }
+
+          // Bluetooth devices — one tonal panel listing connected devices.
           BlackPanel {
             height: root.btPowered && root.btDevices.length > 0 ? btCol.implicitHeight + 8 : 0
             visible: root.btPowered && root.btDevices.length > 0
