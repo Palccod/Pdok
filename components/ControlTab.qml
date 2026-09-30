@@ -1,8 +1,11 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC2
 import Quickshell.Io
 import Quickshell.Services.Pipewire
+import Quickshell.Networking
+import Quickshell.Bluetooth
 import qs.Commons
 import qs.Ui
 
@@ -55,151 +58,145 @@ Rectangle {
   readonly property string glyphNet: "󰤢"
   readonly property string glyphRefresh: "󰑐"
 
-  // ------------------------------------------------------------ network/BT
-  property string wifiState: "unknown"        // enabled | disabled | unknown
-  property var wifiNetworks: []
-  property string wifiError: ""
-  property bool btPowered: false
-  property var btDevices: []
-  property string btError: ""
+  // ---------------------------------------------------------------- wi-fi
+  // Quickshell.Networking — the same NetworkManager backend the omarchy
+  // network panel uses, so connected/known state is real, and scanning is
+  // the device's own scannerEnabled flag (no nmcli parsing).
+  readonly property var netDevices: Networking.devices ? Networking.devices.values : []
+  readonly property var wifiDevice: {
+    for (var i = 0; i < netDevices.length; i++)
+      if (netDevices[i] && netDevices[i].type === DeviceType.Wifi) return netDevices[i]
+    return null
+  }
+  readonly property bool wifiOn: Networking.wifiEnabled === true
+  readonly property var wifiNetworksRaw: wifiDevice && wifiDevice.networks ? wifiDevice.networks.values : []
 
-  // Wi-Fi list rows: nmcli -t escapes ":" as "\:"; swap for a sentinel.
-  function parseWifiList(raw) {
+  // Connected first, then strongest signal; hidden SSIDs dropped.
+  // Primitives only — omarchy's Model normalizes for the same reason: a
+  // live QObject per delegate has segfaulted quickshell on scan churn.
+  readonly property var wifiNetworks: {
     var rows = []
-    var lines = String(raw || "").split("\n")
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i]
-      if (line === "") continue
-      var parts = line.replace(/\\:/g, "\u0001").split(":")
-      if (parts.length < 3) continue
-      var ssid = parts[1].replace(/\u0001/g, ":").trim()
-      if (ssid === "") continue
-      var sig = Math.max(0, Math.min(100, Math.round(Number(parts[2]) || 0)))
+    var raw = wifiNetworksRaw
+    for (var i = 0; i < raw.length; i++) {
+      var n = raw[i]
+      if (!n || !n.name || String(n.name) === "") continue
       rows.push({
-        ssid: ssid.slice(0, 32),
-        signal: sig,
-        active: parts[0] === "*",
-        security: parts.length > 3 ? parts[3].replace(/\u0001/g, ":") : ""
+        ssid: String(n.name),
+        connected: n.connected === true,
+        known: n.known === true,
+        signal: Math.round((Number(n.signalStrength) || 0) * 100),
+        security: n.security
       })
     }
-    rows.sort(function(a, b) { return (b.active - a.active) || (b.signal - a.signal) })
+    rows.sort(function(a, b) {
+      return ((b.connected ? 1 : 0) - (a.connected ? 1 : 0))
+        || (b.signal - a.signal)
+    })
+    return rows.slice(0, 10)
+  }
+
+  property string passwordSsid: ""
+  property string passwordText: ""
+
+  function netSecured(sec) {
+    try { return sec !== undefined && sec !== null && sec !== WifiSecurityType.None }
+    catch (e) { return false }
+  }
+  function netBySsid(ssid) {
+    for (var i = 0; i < wifiNetworksRaw.length; i++) {
+      var n = wifiNetworksRaw[i]
+      if (n && String(n.ssid || "") === ssid) return n
+    }
+    return null
+  }
+  function connectNet(ssid) {
+    var n = netBySsid(ssid)
+    if (!n) return
+    if (n.connected === true) { if (typeof n.disconnect === "function") n.disconnect(); return }
+    if (netSecured(n.security) && n.known !== true) {
+      root.passwordSsid = ssid
+      root.passwordText = ""
+      return
+    }
+    if (typeof n.connect === "function") n.connect()
+  }
+  function submitWifiPassword() {
+    var ssid = root.passwordSsid
+    if (ssid === "" || root.passwordText.length === 0) return
+    var n = netBySsid(ssid)
+    if (n && typeof n.connectWithPsk === "function") n.connectWithPsk(root.passwordText)
+    root.passwordSsid = ""
+    root.passwordText = ""
+  }
+
+  // Signal-strength wifi glyph, omarchy's mapping (0-100 -> 5 bars).
+  function wifiIconFor(strength) {
+    var icons = ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"]
+    var pct = Math.max(0, Math.min(100, Math.round(Number(strength) || 0)))
+    return icons[Math.max(0, Math.min(4, Math.ceil(pct / 20) - 1))]
+  }
+
+  // Scanner runs only while the tab is visible (the panel's own release
+  // pattern, simplified): enable on show, disable on hide or device swap.
+  property var _scannerDevice: null
+  function syncScanner() {
+    var dev = visible ? wifiDevice : null
+    if (_scannerDevice && _scannerDevice !== dev) _scannerDevice.scannerEnabled = false
+    _scannerDevice = dev
+    if (_scannerDevice) _scannerDevice.scannerEnabled = true
+  }
+
+  // ------------------------------------------------------------ bluetooth
+  // Quickshell.Bluetooth — real discovery: adapter.discovering drives the
+  // BlueZ scan and Bluetooth.devices picks up whatever it finds.
+  readonly property var btAdapter: Bluetooth.defaultAdapter
+  readonly property bool btPowered: btAdapter ? btAdapter.enabled === true : false
+  readonly property bool btScanning: btAdapter ? btAdapter.discovering === true : false
+
+  readonly property var btDevices: {
+    var devs = Bluetooth.devices ? Bluetooth.devices.values : []
+    var rows = []
+    for (var i = 0; i < devs.length; i++) {
+      var d = devs[i]
+      if (!d || !d.name || String(d.name) === "") continue
+      rows.push(d)
+    }
+    rows.sort(function(a, b) {
+      return ((b.connected === true) - (a.connected === true))
+        || String(a.name).localeCompare(String(b.name))
+    })
     return rows.slice(0, 8)
   }
 
-  function parseBtDevices(raw) {
-    var rows = []
-    var lines = String(raw || "").split("\n")
-    for (var i = 0; i < lines.length && rows.length < 6; i++) {
-      var line = lines[i].trim()
-      if (line.indexOf("Device ") !== 0) continue
-      var rest = line.slice(7)
-      var sp = rest.indexOf(" ")
-      if (sp <= 0) continue
-      var mac = rest.slice(0, sp)
-      if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac)) continue
-      rows.push({ mac: mac, name: rest.slice(sp + 1).slice(0, 40) })
-    }
-    return rows
+  function btScan() {
+    if (!btAdapter) return
+    // Off->on restarts the inquiry even if discovery is already running.
+    btAdapter.discovering = false
+    btScanDelay.restart()
   }
 
-  function refreshWifi() {
-    if (!wifiStateProc.running) wifiStateProc.running = true
-    if (!wifiListProc.running) wifiListProc.running = true
+  Timer { id: btScanDelay; interval: 300; onTriggered: if (root.btAdapter) root.btAdapter.discovering = true }
+
+  // rfkill can hide the adapter from BlueZ entirely; clear it before
+  // powering on (the notch uses the same helper).
+  Process {
+    id: rfkillPower
+    command: []
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: if (root.btAdapter) root.btAdapter.enabled = true
   }
-  function refreshBt() {
-    if (!btStateProc.running) btStateProc.running = true
-    if (!btListProc.running) btListProc.running = true
-  }
-  function refreshBrightness() {
-    if (!briReadProc.running) briReadProc.running = true
+
+  function btToggleDevice(d) {
+    if (!d) return
+    if (d.connected === true && typeof d.disconnect === "function") d.disconnect()
+    else if (typeof d.connect === "function") d.connect()
   }
 
   onVisibleChanged: {
-    if (!visible) return
-    refreshWifi()
-    refreshBt()
-    refreshBrightness()
+    syncScanner()
     dfProc.running = true
   }
-
-  Process {
-    id: wifiStateProc
-    command: ["/usr/sbin/nmcli", "-t", "-f", "WIFI", "radio"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.wifiState = text.trim() === "disabled" ? "disabled" : (text.trim() === "enabled" ? "enabled" : "unknown")
-    }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) root.wifiError = "nmcli failed"
-    }
-  }
-
-  Process {
-    id: wifiListProc
-    command: ["/usr/sbin/nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"]
-    stderr: StdioCollector { waitForEnd: true }
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.wifiNetworks = root.parseWifiList(text)
-        root.wifiError = ""
-      }
-    }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) root.wifiError = "scan failed"
-    }
-  }
-
-  Process {
-    id: wifiToggleProc
-    command: []
-    stderr: StdioCollector { waitForEnd: true }
-    onExited: root.refreshWifi()
-  }
-
-  Process {
-    id: btStateProc
-    command: ["/usr/bin/bluetoothctl", "show"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var lines = text.split("\n")
-        for (var i = 0; i < lines.length; i++) {
-          var m = /^[\s]*Powered: (.+)$/.exec(lines[i])
-          if (m) root.btPowered = m[1].trim() === "yes"
-        }
-      }
-    }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) {
-        // No controller while rfkill-blocked; show the real (off) state.
-        root.btPowered = false
-        root.btError = "bluetoothctl failed"
-      }
-    }
-  }
-
-  Process {
-    id: btListProc
-    command: ["/usr/bin/bluetoothctl", "devices", "Connected"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.btDevices = root.parseBtDevices(text)
-    }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) root.btError = "device list failed"
-    }
-  }
-
-  Process {
-    id: btToggleProc
-    command: []
-    stderr: StdioCollector { waitForEnd: true }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) root.btError = "could not power bluetooth"
-      root.refreshBt()
-    }
-  }
+  onWifiDeviceChanged: syncScanner()
 
   // ------------------------------------------------------------- brightness
   property int briCur: -1
@@ -240,7 +237,7 @@ Rectangle {
         root.briQueued = -1
         root.setBrightness(v)
       } else {
-        root.refreshBrightness()
+        if (!briReadProc.running) briReadProc.running = true
       }
     }
   }
@@ -542,16 +539,12 @@ Rectangle {
           }
 
           QuickToggle {
-            glyph: root.wifiState === "enabled" ? root.glyphWifi : root.glyphWifiOff
+            glyph: root.wifiOn ? root.glyphWifi : root.glyphWifiOff
             accent: root.accent
             fg: root.fg
             fontFamily: root.fontFamily
-            checked: root.wifiState === "enabled"
-            onToggled: function(next) {
-              if (root.wifiState !== "enabled" && root.wifiState !== "disabled") return
-              wifiToggleProc.command = ["/usr/sbin/nmcli", "radio", "wifi", next ? "on" : "off"]
-              wifiToggleProc.running = true
-            }
+            checked: root.wifiOn
+            onToggled: function(next) { Networking.wifiEnabled = next }
           }
 
           QuickToggle {
@@ -561,19 +554,17 @@ Rectangle {
             fontFamily: root.fontFamily
             checked: root.btPowered
             onToggled: function(next) {
-              root.btError = ""
+              if (!root.btAdapter) return
+              // A soft rfkill block (fn-key airplane mode) leaves no
+              // controller to power on; unblock first, then set power.
               if (next) {
-                // A soft rfkill block (fn-key airplane mode) leaves bluetoothctl
-                // with no controller to power on; unblock first, then retry until
-                // the adapter registers with bluetoothd.
-                btToggleProc.command = ["/bin/sh", "-c",
-                  "/usr/sbin/rfkill unblock bluetooth; n=0; " +
-                  "until /usr/bin/bluetoothctl power on 2>/dev/null; do " +
-                  "n=$((n+1)); [ $n -ge 20 ] && exit 1; /usr/sbin/sleep 0.3; done"]
+                rfkillPower.command = ["/bin/sh", "-c",
+                  "/usr/sbin/rfkill unblock bluetooth; " +
+                  "/usr/bin/bluetoothctl power on >/dev/null 2>&1; exit 0"]
+                rfkillPower.running = true
               } else {
-                btToggleProc.command = ["/usr/bin/bluetoothctl", "power", "off"]
+                root.btAdapter.enabled = false
               }
-              btToggleProc.running = true
             }
           }
         }
@@ -655,35 +646,18 @@ Rectangle {
         }
       }
 
-      // ------------------------------------------------------------- network
+      // --------------------------------------------------------------- wi-fi
       SectionHeader {
-        title: "NETWORK"
+        title: "WI-FI"
         fg: root.fg
         fontFamily: root.fontFamily
-
-        Text {
-          text: root.glyphRefresh
-          textFormat: Text.PlainText
-          font.family: root.fontFamily
-          font.pixelSize: 13
-          color: root.fg
-          opacity: netRefreshMa.containsMouse ? 1.0 : 0.6
-
-          MouseArea {
-            id: netRefreshMa
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: { root.refreshWifi(); root.refreshBt() }
-          }
-        }
       }
 
       Pane {
-        height: netPanel.implicitHeight + 20
+        height: wifiPanel.implicitHeight + 20
 
         Column {
-          id: netPanel
+          id: wifiPanel
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
@@ -692,110 +666,7 @@ Rectangle {
 
           Text {
             width: parent.width
-            visible: root.wifiState === "enabled"
-            text: "WI-FI"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: 9
-            font.letterSpacing: 1
-            leftPadding: 2
-            topPadding: 2
-          }
-
-          BlackPanel {
-            height: wifiCol.implicitHeight > 0 ? wifiCol.implicitHeight + 8 : 0
-            visible: wifiCol.implicitHeight > 0
-
-            Column {
-              id: wifiCol
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.top: parent.top
-              anchors.topMargin: 4
-              spacing: 2
-              visible: root.wifiState === "enabled" && root.wifiNetworks.length > 0
-
-              Repeater {
-                model: root.wifiNetworks
-
-                delegate: Rectangle {
-                  id: netRow
-
-                  required property var modelData
-
-                  width: parent.width
-                  height: 28
-                  radius: 6
-                  color: netMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : "transparent"
-
-                  Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 10
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.glyphWifi
-                    textFormat: Text.PlainText
-                    color: netRow.modelData.active ? root.accent : root.fg
-                    opacity: netRow.modelData.active ? 1.0 : 0.55
-                    font.family: root.fontFamily
-                    font.pixelSize: 12
-                  }
-
-                  Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 30
-                    anchors.right: signalText.left
-                    anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: netRow.modelData.ssid
-                    textFormat: Text.PlainText
-                    color: root.fg
-                    font.family: root.fontFamily
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
-                  }
-
-                  Text {
-                    id: signalText
-                    anchors.right: activeTick.visible ? activeTick.left : parent.right
-                    anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: netRow.modelData.signal + "%"
-                    textFormat: Text.PlainText
-                    color: root.fg
-                    opacity: 0.5
-                    font.family: root.fontFamily
-                    font.pixelSize: 10
-                  }
-
-                  Text {
-                    id: activeTick
-                    anchors.right: parent.right
-                    anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "connected"
-                    textFormat: Text.PlainText
-                    color: root.accent
-                    font.family: root.fontFamily
-                    font.pixelSize: 10
-                    font.bold: true
-                    visible: netRow.modelData.active
-                  }
-
-                  MouseArea {
-                    id: netMa
-                    anchors.fill: parent
-                    hoverEnabled: true
-                  }
-                }
-              }
-            }
-          }
-
-          Text {
-            width: parent.width
-            visible: root.wifiState === "disabled"
+            visible: !root.wifiOn
             text: "Wi-Fi is off"
             textFormat: Text.PlainText
             color: root.fg
@@ -807,8 +678,8 @@ Rectangle {
 
           Text {
             width: parent.width
-            visible: root.wifiState === "enabled" && root.wifiNetworks.length === 0 && !wifiListProc.running
-            text: "No networks found"
+            visible: root.wifiOn && root.wifiNetworks.length === 0
+            text: "Scanning for networks…"
             textFormat: Text.PlainText
             color: root.fg
             opacity: 0.5
@@ -817,91 +688,163 @@ Rectangle {
             leftPadding: 8
           }
 
-          Text {
-            width: parent.width
-            visible: root.wifiError !== ""
-            text: root.wifiError
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pixelSize: 11
-            leftPadding: 8
-          }
+          Repeater {
+            model: root.wifiOn ? root.wifiNetworks : []
 
-          Text {
-            width: parent.width
-            visible: root.btPowered || root.btError !== ""
-            text: "BLUETOOTH"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: 9
-            font.letterSpacing: 1
-            leftPadding: 2
-            topPadding: 2
-          }
+            delegate: Rectangle {
+              id: netRow
 
-          // Bluetooth devices — one tonal panel listing connected devices.
-          BlackPanel {
-            height: root.btPowered && root.btDevices.length > 0 ? btCol.implicitHeight + 8 : 0
-            visible: root.btPowered && root.btDevices.length > 0
+              required property var modelData
 
-            Column {
-              id: btCol
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.top: parent.top
-              anchors.topMargin: 4
-              spacing: 2
+              width: parent.width
+              height: netRow.passwordOpen ? 56 : 38
+              radius: 8
+              color: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
+              Behavior on height { NumberAnimation { duration: 90 } }
 
-              Repeater {
-                model: root.btDevices
+              readonly property bool connected: netRow.modelData.connected
+              readonly property bool secured: root.netSecured(netRow.modelData.security)
+              readonly property bool passwordOpen: root.passwordSsid === netRow.modelData.ssid
+              readonly property string statusText: connected ? "Connected" : ""
 
-                delegate: Rectangle {
-                  id: btRow
+              Row {
+                id: netBody
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.top: parent.top
+                anchors.topMargin: 6
+                spacing: 10
 
-                  required property var modelData
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.wifiIconFor(netRow.modelData.signal)
+                  textFormat: Text.PlainText
+                  color: netRow.connected ? root.accent : root.fg
+                  opacity: netRow.connected ? 1.0 : 0.7
+                  font.family: root.fontFamily
+                  font.pixelSize: 16
+                }
 
-                  width: parent.width
-                  height: 28
-                  radius: 6
-                  color: "transparent"
+                Column {
+                  width: netBody.width - 26 - netLock.width - netBody.spacing * 2 - 30
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: 1
 
                   Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 10
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.glyphBt
-                    textFormat: Text.PlainText
-                    color: root.accent
-                    font.family: root.fontFamily
-                    font.pixelSize: 12
-                  }
-
-                  Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 30
-                    anchors.right: parent.right
-                    anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: btRow.modelData.name
+                    width: parent.width
+                    text: String(netRow.modelData.ssid || "")
                     textFormat: Text.PlainText
                     color: root.fg
                     font.family: root.fontFamily
                     font.pixelSize: 12
+                    font.bold: netRow.connected
                     elide: Text.ElideRight
                   }
+
+                  Text {
+                    width: parent.width
+                    visible: netRow.statusText !== ""
+                    text: netRow.statusText
+                    textFormat: Text.PlainText
+                    color: root.fg
+                    opacity: 0.55
+                    font.family: root.fontFamily
+                    font.pixelSize: 10
+                  }
+                }
+
+                Text {
+                  id: netLock
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "󰌾"
+                  textFormat: Text.PlainText
+                  visible: netRow.secured && !netRow.connected
+                  color: root.fg
+                  opacity: 0.4
+                  font.family: root.fontFamily
+                  font.pixelSize: 12
+                }
+              }
+
+              // Inline passphrase prompt, omarchy-panel style: opens on a
+              // secured, unknown network click; Enter connects.
+              QQC2.TextField {
+                visible: netRow.passwordOpen
+                anchors.left: parent.left
+                anchors.leftMargin: 46
+                anchors.right: parent.right
+                anchors.rightMargin: 46
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 6
+                echoMode: TextInput.Password
+                font.family: root.fontFamily
+                font.pixelSize: 11
+                color: root.fg
+                placeholderText: "password"
+                onTextChanged: root.passwordText = text
+                onAccepted: root.submitWifiPassword()
+                Component.onCompleted: if (netRow.passwordOpen) forceActiveFocus()
+              }
+
+              MouseArea {
+                id: netMa
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: netBody.height + 12
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  root.passwordSsid = ""
+                  root.connectNet(netRow.modelData.ssid)
                 }
               }
             }
           }
+        }
+      }
+
+      // ---------------------------------------------------------- bluetooth
+      SectionHeader {
+        title: "BLUETOOTH"
+        fg: root.fg
+        fontFamily: root.fontFamily
+
+        Text {
+          text: root.glyphRefresh
+          textFormat: Text.PlainText
+          font.family: root.fontFamily
+          font.pixelSize: 13
+          color: root.fg
+          opacity: btRefreshMa.containsMouse ? 1.0 : 0.6
+
+          MouseArea {
+            id: btRefreshMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.btScan()
+          }
+        }
+      }
+
+      Pane {
+        height: btPanel.implicitHeight + 20
+
+        Column {
+          id: btPanel
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.topMargin: 10
+          spacing: 4
 
           Text {
             width: parent.width
-            visible: root.btPowered && root.btDevices.length === 0
-            text: "No connected devices"
+            visible: !root.btPowered
+            text: "Bluetooth is off"
             textFormat: Text.PlainText
             color: root.fg
             opacity: 0.5
@@ -912,14 +855,109 @@ Rectangle {
 
           Text {
             width: parent.width
-            visible: root.btError !== ""
-            text: root.btError
+            visible: root.btPowered && root.btScanning && root.btDevices.length === 0
+            text: "Scanning…"
             textFormat: Text.PlainText
             color: root.fg
             opacity: 0.5
             font.family: root.fontFamily
             font.pixelSize: 11
             leftPadding: 8
+          }
+
+          Text {
+            width: parent.width
+            visible: root.btPowered && !root.btScanning && root.btDevices.length === 0
+            text: "No devices found"
+            textFormat: Text.PlainText
+            color: root.fg
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: 11
+            leftPadding: 8
+          }
+
+          Repeater {
+            model: root.btPowered ? root.btDevices : []
+
+            delegate: Rectangle {
+              id: btRow
+
+              required property var modelData
+
+              width: parent.width
+              height: 38
+              radius: 8
+              color: btMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : Qt.rgba(fg.r, fg.g, fg.b, 0.05)
+
+              readonly property bool connected: btRow.modelData.connected === true
+              readonly property bool paired: btRow.modelData.paired === true
+
+              Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.glyphBt
+                textFormat: Text.PlainText
+                color: btRow.connected ? root.accent : root.fg
+                opacity: btRow.connected ? 1.0 : 0.6
+                font.family: root.fontFamily
+                font.pixelSize: 14
+              }
+
+              Column {
+                anchors.left: parent.left
+                anchors.leftMargin: 34
+                anchors.right: btStatus.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 1
+
+                Text {
+                  width: parent.width
+                  text: String(btRow.modelData.name || "")
+                  textFormat: Text.PlainText
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: 12
+                  font.bold: btRow.connected
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  width: parent.width
+                  visible: btRow.modelData.batteryAvailable === true
+                  text: "battery " + Math.round(Number(btRow.modelData.battery) * 100) + "%"
+                  textFormat: Text.PlainText
+                  color: root.fg
+                  opacity: 0.55
+                  font.family: root.fontFamily
+                  font.pixelSize: 10
+                }
+              }
+
+              Text {
+                id: btStatus
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                text: btRow.connected ? "connected" : (btRow.paired ? "paired" : "")
+                textFormat: Text.PlainText
+                color: btRow.connected ? root.accent : root.fg
+                opacity: btRow.connected ? 1.0 : 0.5
+                font.family: root.fontFamily
+                font.pixelSize: 10
+                font.bold: btRow.connected
+              }
+
+              MouseArea {
+                id: btMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: btRow.paired || btRow.connected ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: root.btToggleDevice(btRow.modelData)
+              }
+            }
           }
         }
       }
