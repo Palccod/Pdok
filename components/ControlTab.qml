@@ -90,6 +90,7 @@ Rectangle {
     }
     rows.sort(function(a, b) {
       return ((b.connected ? 1 : 0) - (a.connected ? 1 : 0))
+        || ((b.known ? 1 : 0) - (a.known ? 1 : 0))
         || (b.signal - a.signal)
     })
     return rows.slice(0, 10)
@@ -197,6 +198,133 @@ Rectangle {
     dfProc.running = true
   }
   onWifiDeviceChanged: syncScanner()
+
+  // ------------------------------------------------- active-link details
+  // omarchy's own helper reports the whole active connection in one shot;
+  // rates/loss are derived here from consecutive samples + a real ping.
+  property var netInfo: ({})
+  property real linkDownRate: 0
+  property real linkUpRate: 0
+  property var linkLast: null
+  property string packetLoss: "…"
+  property string dnsProvider: ""
+  property int phraseStep: 0
+  readonly property var linkPhrases: [
+    "Wiring bits", "Handling packets", "Sorting frames", "Hauling bytes",
+    "Routing crumbs", "Counting collisions", "Bending light"
+  ]
+  readonly property string linkPhrase: linkPhrases[phraseStep % linkPhrases.length]
+
+  Process {
+    id: netStatusProc
+    command: ["/usr/sbin/omarchy-network-status", "--verbose"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var info = {}
+        var lines = text.trim().split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var p = lines[i].split("\t")
+          if (p.length >= 2) info[p[0].trim()] = p.slice(1).join("\t").trim()
+        }
+        root.netInfo = info
+        var rx = Number(info.rx_bytes) || 0
+        var tx = Number(info.tx_bytes) || 0
+        var now = Date.now()
+        if (root.linkLast && now > root.linkLast.at) {
+          var dt = (now - root.linkLast.at) / 1000
+          root.linkDownRate = Math.max(0, (rx - root.linkLast.rx) / dt)
+          root.linkUpRate = Math.max(0, (tx - root.linkLast.tx) / dt)
+        }
+        root.linkLast = { at: now, rx: rx, tx: tx }
+      }
+    }
+  }
+
+  Process {
+    id: dnsReadProc
+    command: ["/usr/sbin/omarchy-dns"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.dnsProvider = text.trim()
+    }
+  }
+
+  Process {
+    id: dnsSetProc
+    command: []
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: if (!dnsReadProc.running) dnsReadProc.running = true
+  }
+
+  Process {
+    id: pingProc
+    // Constant command line — nothing interpolated.
+    command: ["/bin/sh", "-c", "ping -c 3 -W 1 1.1.1.1 2>/dev/null | tail -n 2"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var m = /([0-9.]+)% packet loss/.exec(text)
+        root.packetLoss = m ? m[1] + "%" : "—"
+      }
+    }
+  }
+
+  Timer {
+    interval: 5000
+    running: root.visible
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (!netStatusProc.running) netStatusProc.running = true
+      if (!dnsReadProc.running) dnsReadProc.running = true
+    }
+  }
+
+  Timer {
+    interval: 15000
+    running: root.visible
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (!pingProc.running) pingProc.running = true
+  }
+
+  Timer {
+    interval: 4000
+    running: root.visible && root.netInfo.ssid !== undefined
+    repeat: true
+    onTriggered: root.phraseStep++
+  }
+
+  function setDns(provider) {
+    dnsSetProc.command = ["/usr/sbin/omarchy-dns", String(provider)]
+    dnsSetProc.running = true
+  }
+
+  function fmtLinkBytes(n) {
+    var b = Math.max(0, Number(n) || 0)
+    if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(2) + " GB"
+    if (b >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB"
+    if (b >= 1024) return (b / 1024).toFixed(0) + " KB"
+    return Math.round(b) + " B"
+  }
+
+  function fmtLinkRate(bps) {
+    var b = Math.max(0, Number(bps) || 0)
+    if (b >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB/s"
+    if (b >= 1024) return (b / 1024).toFixed(0) + " KB/s"
+    return Math.round(b) + " B/s"
+  }
+
+  function disconnectWifi() {
+    var n = netBySsid(String(root.netInfo.ssid || ""))
+    if (n && typeof n.disconnect === "function") n.disconnect()
+  }
+
+  function netStatus(key) {
+    var v = root.netInfo[key]
+    return v === undefined ? "" : String(v)
+  }
 
   // ------------------------------------------------------------- brightness
   property int briCur: -1
@@ -647,78 +775,269 @@ Rectangle {
       }
 
       // --------------------------------------------------------------- wi-fi
-      SectionHeader {
-        title: "WI-FI"
-        fg: root.fg
-        fontFamily: root.fontFamily
-      }
-
+      // Active-link hero card + DNS pills + network list, in the shape of
+      // the omarchy network panel.
       Pane {
-        height: wifiPanel.implicitHeight + 20
+        height: wifiHero.implicitHeight + 20
+        visible: root.netStatus("ssid") !== ""
 
         Column {
-          id: wifiPanel
+          id: wifiHero
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.topMargin: 10
-          spacing: 4
+          spacing: 10
 
-          Text {
-            width: parent.width
-            visible: !root.wifiOn
-            text: "Wi-Fi is off"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pixelSize: 11
-            leftPadding: 8
-          }
+          Row {
+            width: parent.width - 20
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 10
 
-          Text {
-            width: parent.width
-            visible: root.wifiOn && root.wifiNetworks.length === 0
-            text: "Scanning for networks…"
-            textFormat: Text.PlainText
-            color: root.fg
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pixelSize: 11
-            leftPadding: 8
-          }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.wifiIconFor(root.netStatus("ssid") !== "" ? 100 : 0)
+              textFormat: Text.PlainText
+              color: root.accent
+              font.family: root.fontFamily
+              font.pixelSize: 26
+            }
 
-          Repeater {
-            model: root.wifiOn ? root.wifiNetworks : []
+            Column {
+              width: parent.width - 36 - heroActions.width - parent.spacing * 2
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: 1
 
-            delegate: Rectangle {
-              id: netRow
+              Text {
+                width: parent.width
+                text: root.netStatus("ssid")
+                textFormat: Text.PlainText
+                color: root.fg
+                font.family: root.fontFamily
+                font.pixelSize: 14
+                font.bold: true
+                elide: Text.ElideRight
+              }
 
-              required property var modelData
+              Text {
+                width: parent.width
+                text: root.linkPhrase
+                textFormat: Text.PlainText
+                color: root.fg
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: 9
+                font.letterSpacing: 1
+                elide: Text.ElideRight
+              }
+            }
 
-              width: parent.width
-              height: netRow.passwordOpen ? 56 : 38
-              radius: 8
-              color: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
-              Behavior on height { NumberAnimation { duration: 90 } }
+            Row {
+              id: heroActions
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: 6
 
-              readonly property bool connected: netRow.modelData.connected
-              readonly property bool secured: root.netSecured(netRow.modelData.security)
-              readonly property bool passwordOpen: root.passwordSsid === netRow.modelData.ssid
-              readonly property string statusText: connected ? "Connected" : ""
-
-              Row {
-                id: netBody
-                anchors.left: parent.left
-                anchors.leftMargin: 10
-                anchors.right: parent.right
-                anchors.rightMargin: 10
-                anchors.top: parent.top
-                anchors.topMargin: 6
-                spacing: 10
+              Rectangle {
+                width: 28
+                height: 28
+                radius: 8
+                color: heroDiscoMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.10) : Qt.rgba(fg.r, fg.g, fg.b, 0.06)
 
                 Text {
-                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.centerIn: parent
+                  text: "󰤭"
+                  textFormat: Text.PlainText
+                  color: root.fg
+                  opacity: 0.8
+                  font.family: root.fontFamily
+                  font.pixelSize: 14
+                }
+
+                MouseArea {
+                  id: heroDiscoMa
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.disconnectWifi()
+                }
+              }
+            }
+          }
+
+          Grid {
+            width: parent.width - 20
+            anchors.horizontalCenter: parent.horizontalCenter
+            columns: 2
+            columnSpacing: 14
+            rowSpacing: 5
+
+            component LinkStat: Row {
+              required property string label
+              required property string value
+              width: (parent.width - parent.columnSpacing) / 2
+              spacing: 6
+
+              Text {
+                text: parent.label
+                textFormat: Text.PlainText
+                color: root.fg
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: 10
+              }
+
+              Text {
+                text: parent.value
+                textFormat: Text.PlainText
+                color: root.fg
+                font.family: root.fontFamily
+                font.pixelSize: 10
+                font.bold: true
+                elide: Text.ElideRight
+                width: parent.width - parent.spacing - (parent.children[0] ? parent.children[0].implicitWidth : 0)
+                horizontalAlignment: Text.AlignRight
+              }
+            }
+
+            LinkStat { label: "Ping"; value: root.netStatus("internet_ping_ms") !== "" ? root.netStatus("internet_ping_ms") + " ms" : "—" }
+            LinkStat { label: "Packet Loss"; value: root.packetLoss }
+            LinkStat { label: "Receiving"; value: root.fmtLinkRate(root.linkDownRate) }
+            LinkStat { label: "Sending"; value: root.fmtLinkRate(root.linkUpRate) }
+            LinkStat { label: "Downloaded"; value: root.fmtLinkBytes(root.netStatus("rx_bytes")) }
+            LinkStat { label: "Uploaded"; value: root.fmtLinkBytes(root.netStatus("tx_bytes")) }
+            LinkStat { label: "IP Address"; value: root.netStatus("ip") }
+            LinkStat { label: "Gateway"; value: root.netStatus("gateway") }
+          }
+        }
+      }
+
+      // DNS provider pills — omarchy-dns does the switching.
+      Column {
+        width: parent.width
+        spacing: 6
+        visible: root.netStatus("ssid") !== ""
+
+        SectionHeader {
+          width: parent.width
+          title: "DNS PROVIDER"
+          fg: root.fg
+          fontFamily: root.fontFamily
+        }
+
+        Row {
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: 6
+
+          Repeater {
+            model: ["DHCP", "Cloudflare", "Google", "Custom"]
+
+            delegate: Rectangle {
+              id: dnsPill
+
+              required property string modelData
+
+              width: dnsLabel.implicitWidth + 22
+              height: 26
+              radius: 13
+              color: root.dnsProvider === dnsPill.modelData ? Qt.rgba(fg.r, fg.g, fg.b, 0.14) : Qt.rgba(fg.r, fg.g, fg.b, 0.06)
+              Behavior on color { ColorAnimation { duration: 120 } }
+
+              Text {
+                id: dnsLabel
+                anchors.centerIn: parent
+                text: dnsPill.modelData
+                textFormat: Text.PlainText
+                color: root.dnsProvider === dnsPill.modelData ? root.accent : root.fg
+                opacity: root.dnsProvider === dnsPill.modelData ? 1.0 : 0.7
+                font.family: root.fontFamily
+                font.pixelSize: 10
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.setDns(dnsPill.modelData)
+              }
+            }
+          }
+        }
+      }
+
+      // Available + known networks.
+      Column {
+        width: parent.width
+        spacing: 6
+
+        SectionHeader {
+          width: parent.width
+          title: "NETWORKS"
+          fg: root.fg
+          fontFamily: root.fontFamily
+        }
+
+        Pane {
+          width: parent.width
+          height: wifiPanel.implicitHeight + 16
+
+          Column {
+            id: wifiPanel
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: 8
+            spacing: 4
+
+            Text {
+              width: parent.width
+              visible: !root.wifiOn
+              text: "Wi-Fi is off"
+              textFormat: Text.PlainText
+              color: root.fg
+              opacity: 0.5
+              font.family: root.fontFamily
+              font.pixelSize: 11
+              leftPadding: 8
+            }
+
+            Text {
+              width: parent.width
+              visible: root.wifiOn && root.wifiNetworks.length === 0
+              text: "Scanning for networks…"
+              textFormat: Text.PlainText
+              color: root.fg
+              opacity: 0.5
+              font.family: root.fontFamily
+              font.pixelSize: 11
+              leftPadding: 8
+            }
+
+            Repeater {
+              model: root.wifiOn ? root.wifiNetworks : []
+
+              delegate: Rectangle {
+                id: netRow
+
+                required property var modelData
+
+                width: parent.width
+                height: netRow.passwordOpen ? 58 : 40
+                radius: 8
+                color: netMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : "transparent"
+                Behavior on height { NumberAnimation { duration: 90 } }
+
+                readonly property bool connected: netRow.modelData.connected
+                readonly property bool secured: root.netSecured(netRow.modelData.security)
+                readonly property bool passwordOpen: root.passwordSsid === netRow.modelData.ssid
+                readonly property string statusText: connected ? "Connected" : ""
+
+                Text {
+                  id: netIcon
+                  anchors.left: parent.left
+                  anchors.leftMargin: 10
+                  anchors.top: parent.top
+                  anchors.topMargin: netRow.passwordOpen ? 8 : 0
+                  anchors.verticalCenter: netRow.passwordOpen ? undefined : parent.verticalCenter
                   text: root.wifiIconFor(netRow.modelData.signal)
                   textFormat: Text.PlainText
                   color: netRow.connected ? root.accent : root.fg
@@ -728,13 +1047,18 @@ Rectangle {
                 }
 
                 Column {
-                  width: netBody.width - 26 - netLock.width - netBody.spacing * 2 - 30
-                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: netIcon.right
+                  anchors.leftMargin: 10
+                  anchors.right: parent.right
+                  anchors.rightMargin: 10
+                  anchors.verticalCenter: netRow.passwordOpen ? undefined : parent.verticalCenter
+                  anchors.top: netRow.passwordOpen ? parent.top : undefined
+                  anchors.topMargin: netRow.passwordOpen ? 6 : 0
                   spacing: 1
 
                   Text {
                     width: parent.width
-                    text: String(netRow.modelData.ssid || "")
+                    text: netRow.modelData.ssid
                     textFormat: Text.PlainText
                     color: root.fg
                     font.family: root.fontFamily
@@ -756,49 +1080,50 @@ Rectangle {
                 }
 
                 Text {
-                  id: netLock
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: "󰌾"
+                  anchors.right: parent.right
+                  anchors.rightMargin: 10
+                  anchors.verticalCenter: netRow.passwordOpen ? undefined : parent.verticalCenter
+                  anchors.top: netRow.passwordOpen ? parent.top : undefined
+                  anchors.topMargin: netRow.passwordOpen ? 8 : 0
+                  text: netRow.connected ? "" : "󰌾"
                   textFormat: Text.PlainText
-                  visible: netRow.secured && !netRow.connected
+                  visible: netRow.secured
                   color: root.fg
                   opacity: 0.4
                   font.family: root.fontFamily
                   font.pixelSize: 12
                 }
-              }
 
-              // Inline passphrase prompt, omarchy-panel style: opens on a
-              // secured, unknown network click; Enter connects.
-              QQC2.TextField {
-                visible: netRow.passwordOpen
-                anchors.left: parent.left
-                anchors.leftMargin: 46
-                anchors.right: parent.right
-                anchors.rightMargin: 46
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 6
-                echoMode: TextInput.Password
-                font.family: root.fontFamily
-                font.pixelSize: 11
-                color: root.fg
-                placeholderText: "password"
-                onTextChanged: root.passwordText = text
-                onAccepted: root.submitWifiPassword()
-                Component.onCompleted: if (netRow.passwordOpen) forceActiveFocus()
-              }
+                QQC2.TextField {
+                  visible: netRow.passwordOpen
+                  anchors.left: parent.left
+                  anchors.leftMargin: 46
+                  anchors.right: parent.right
+                  anchors.rightMargin: 46
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 6
+                  echoMode: TextInput.Password
+                  font.family: root.fontFamily
+                  font.pixelSize: 11
+                  color: root.fg
+                  placeholderText: "password"
+                  onTextChanged: root.passwordText = text
+                  onAccepted: root.submitWifiPassword()
+                  Component.onCompleted: if (netRow.passwordOpen) forceActiveFocus()
+                }
 
-              MouseArea {
-                id: netMa
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: netBody.height + 12
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                  root.passwordSsid = ""
-                  root.connectNet(netRow.modelData.ssid)
+                MouseArea {
+                  id: netMa
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.top: parent.top
+                  height: 40
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.passwordSsid = ""
+                    root.connectNet(netRow.modelData.ssid)
+                  }
                 }
               }
             }
@@ -806,7 +1131,7 @@ Rectangle {
         }
       }
 
-      // ---------------------------------------------------------- bluetooth
+      // ---------------------------------------------------------- bluetooth      // ---------------------------------------------------------- bluetooth
       SectionHeader {
         title: "BLUETOOTH"
         fg: root.fg
