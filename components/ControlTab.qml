@@ -108,7 +108,7 @@ Rectangle {
   function netBySsid(ssid) {
     for (var i = 0; i < wifiNetworksRaw.length; i++) {
       var n = wifiNetworksRaw[i]
-      if (n && String(n.ssid || "") === ssid) return n
+      if (n && String(n.name || "") === ssid) return n
     }
     return null
   }
