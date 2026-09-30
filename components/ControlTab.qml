@@ -113,15 +113,6 @@ Rectangle {
     return null
   }
   function connectNet(ssid) {
-    for (var di = 0; di < wifiDummies.length; di++) {
-      if (wifiDummies[di].ssid === ssid) {
-        if (wifiDummies[di].security !== 0) {
-          root.passwordSsid = ssid
-          root.passwordText = ""
-        }
-        return
-      }
-    }
     var n = netBySsid(ssid)
     if (!n) return
     if (n.connected === true) { if (typeof n.disconnect === "function") n.disconnect(); return }
@@ -180,28 +171,6 @@ Rectangle {
     return rows.slice(0, 8)
   }
 
-  // Five dummy rows per list for testing the scrollable pockets; flip
-  // showDummies off to ship. Dummies are display-only except that a
-  // secured one opens the password prompt.
-  property bool showDummies: true
-  readonly property var wifiDummies: [
-    { ssid: "Dummy Network 1", connected: false, known: true,  signal: 92, security: -1 },
-    { ssid: "Dummy Network 2", connected: false, known: false, signal: 77, security: -1 },
-    { ssid: "Dummy Guest",     connected: false, known: false, signal: 61, security: 0 },
-    { ssid: "Dummy Network 3", connected: false, known: false, signal: 46, security: -1 },
-    { ssid: "Dummy Hotspot",   connected: false, known: false, signal: 28, security: -1 }
-  ]
-  readonly property var btDummies: [
-    { name: "Dummy Buds",    connected: true,  paired: true,  batteryAvailable: true,  battery: 0.76 },
-    { name: "Dummy Speaker", connected: false, paired: true,  batteryAvailable: false, battery: 0 },
-    { name: "Dummy Keyboard",connected: false, paired: true,  batteryAvailable: true,  battery: 0.41 },
-    { name: "Dummy Watch",   connected: false, paired: true,  batteryAvailable: false, battery: 0 },
-    { name: "Dummy Mouse",   connected: false, paired: true,  batteryAvailable: false, battery: 0 }
-  ]
-  // Dummies lead the lists so they're visible without scrolling.
-  readonly property var wifiRows: showDummies ? wifiDummies.concat(wifiNetworks) : wifiNetworks
-  readonly property var btRows: showDummies ? btDummies.concat(btDevices) : btDevices
-
   function btScan() {
     if (!btAdapter) return
     // Off->on restarts the inquiry even if discovery is already running.
@@ -226,9 +195,20 @@ Rectangle {
     else if (typeof d.connect === "function") d.connect()
   }
 
+  function wifiRescan() {
+    // Off->on restarts a scan even if the scanner is already running.
+    if (!wifiDevice) return
+    wifiDevice.scannerEnabled = false
+    wifiRescanDelay.restart()
+  }
+
+  Timer { id: wifiRescanDelay; interval: 300; onTriggered: if (root.wifiDevice) root.wifiDevice.scannerEnabled = true }
+
   onVisibleChanged: {
     syncScanner()
     dfProc.running = true
+    if (!briReadProc.running) briReadProc.running = true
+    if (!netStatusProc.running) netStatusProc.running = true
   }
   onWifiDeviceChanged: syncScanner()
 
@@ -1120,15 +1100,28 @@ Rectangle {
         width: parent.width
         spacing: 6
 
-        Text {
-          text: "NETWORKS"
-          textFormat: Text.PlainText
-          color: root.fg
-          opacity: 0.45
-          font.family: root.fontFamily
-          font.pixelSize: 9
-          font.letterSpacing: 1
-          leftPadding: 2
+        SectionHeader {
+          width: parent.width
+          title: "NETWORKS"
+          fg: root.fg
+          fontFamily: root.fontFamily
+
+          Text {
+            text: root.glyphRefresh
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
+            font.pixelSize: 13
+            color: root.fg
+            opacity: netRefreshMa.containsMouse ? 1.0 : 0.6
+
+            MouseArea {
+              id: netRefreshMa
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.wifiRescan()
+            }
+          }
         }
 
         Pane {
@@ -1182,7 +1175,7 @@ Rectangle {
                 spacing: 4
 
             Repeater {
-              model: root.wifiOn ? root.wifiRows : []
+              model: root.wifiOn ? root.wifiNetworks : []
 
               delegate: Rectangle {
                 id: netRow
@@ -1388,7 +1381,7 @@ Rectangle {
               spacing: 4
 
           Repeater {
-            model: root.btPowered ? root.btRows : []
+            model: root.btPowered ? root.btDevices : []
 
             delegate: Rectangle {
               id: btRow
