@@ -198,8 +198,9 @@ Rectangle {
     { name: "Dummy Watch",   connected: false, paired: true,  batteryAvailable: false, battery: 0 },
     { name: "Dummy Mouse",   connected: false, paired: true,  batteryAvailable: false, battery: 0 }
   ]
-  readonly property var wifiRows: showDummies ? wifiNetworks.concat(wifiDummies) : wifiNetworks
-  readonly property var btRows: showDummies ? btDevices.concat(btDummies) : btDevices
+  // Dummies lead the lists so they're visible without scrolling.
+  readonly property var wifiRows: showDummies ? wifiDummies.concat(wifiNetworks) : wifiNetworks
+  readonly property var btRows: showDummies ? btDummies.concat(btDevices) : btDevices
 
   function btScan() {
     if (!btAdapter) return
