@@ -100,7 +100,9 @@ Rectangle {
   property string passwordText: ""
 
   function netSecured(sec) {
-    try { return sec !== undefined && sec !== null && sec !== WifiSecurityType.None }
+    // The enum's open value is Open (there is no None); Unknown counts as
+    // secured so an unidentified network still prompts for a password.
+    try { return sec !== undefined && sec !== null && sec !== WifiSecurityType.Open }
     catch (e) { return false }
   }
   function netBySsid(ssid) {
@@ -319,6 +321,39 @@ Rectangle {
   function disconnectWifi() {
     var n = netBySsid(String(root.netInfo.ssid || ""))
     if (n && typeof n.disconnect === "function") n.disconnect()
+  }
+
+  // Wi-Fi QR share: omarchy's helper prints a meta line then the QR as
+  // 0/1 rows; rendered below as black modules on a white card (inverted
+  // codes scan unreliably).
+  property var qrRows: []
+  property string qrSsid: ""
+  property bool qrOpen: false
+
+  Process {
+    id: qrProc
+    command: ["/usr/sbin/omarchy-network-qr", "--meta"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var lines = text.trim().split("\n")
+        var meta = lines.length > 0 ? lines[0].split("\t") : []
+        var rows = []
+        for (var i = 1; i < lines.length; i++) {
+          var r = lines[i].trim()
+          if (/^[01]+$/.test(r)) rows.push(r)
+        }
+        if (rows.length >= 21) {
+          root.qrRows = rows
+          root.qrSsid = meta.length >= 4 ? meta[3] : ""
+        }
+      }
+    }
+  }
+
+  function toggleQr() {
+    root.qrOpen = !root.qrOpen
+    if (root.qrOpen && !qrProc.running) qrProc.running = true
   }
 
   function netStatus(key) {
@@ -841,6 +876,31 @@ Rectangle {
                 width: 28
                 height: 28
                 radius: 8
+                color: root.qrOpen ? root.accent : (heroQrMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.10) : Qt.rgba(fg.r, fg.g, fg.b, 0.06))
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "󰐁"
+                  textFormat: Text.PlainText
+                  color: root.qrOpen ? "#000000" : root.fg
+                  opacity: root.qrOpen ? 1.0 : 0.8
+                  font.family: root.fontFamily
+                  font.pixelSize: 14
+                }
+
+                MouseArea {
+                  id: heroQrMa
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.toggleQr()
+                }
+              }
+
+              Rectangle {
+                width: 28
+                height: 28
+                radius: 8
                 color: heroDiscoMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.10) : Qt.rgba(fg.r, fg.g, fg.b, 0.06)
 
                 Text {
@@ -858,7 +918,10 @@ Rectangle {
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
-                  onClicked: root.disconnectWifi()
+                  onClicked: {
+                    root.qrOpen = false
+                    root.disconnectWifi()
+                  }
                 }
               }
             }
@@ -908,6 +971,59 @@ Rectangle {
             LinkStat { label: "IP Address"; value: root.netStatus("ip") }
             LinkStat { label: "Gateway"; value: root.netStatus("gateway") }
           }
+
+          // Share QR: black modules on a guaranteed-white card (inverted
+          // codes scan unreliably), sized from the matrix dimensions.
+          Rectangle {
+            width: qrCanvas.width + 16
+            height: qrCanvas.height + 16 + (qrCaption.implicitHeight > 0 ? qrCaption.implicitHeight + 2 : 0)
+            radius: 8
+            color: "#ffffff"
+            visible: root.qrOpen && root.qrRows.length > 0
+            anchors.horizontalCenter: parent.horizontalCenter
+
+            Canvas {
+              id: qrCanvas
+              width: Math.min(180, root.qrRows.length > 0 ? 37 * 4 : 0)
+              height: root.qrRows.length > 0 ? width : 0
+              x: 8
+              y: 8
+              visible: root.qrOpen
+
+              onVisibleChanged: if (visible) requestPaint()
+
+              Connections {
+                target: root
+                function onQrRowsChanged() { qrCanvas.requestPaint() }
+              }
+
+              onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+                var rows = root.qrRows
+                if (rows.length === 0) return
+                var cell = width / rows.length
+                ctx.fillStyle = "#000000"
+                for (var y = 0; y < rows.length; y++)
+                  for (var x = 0; x < rows[y].length; x++)
+                    if (rows[y].charAt(x) === "1")
+                      ctx.fillRect(x * cell, y * cell, cell + 0.5, cell + 0.5)
+              }
+            }
+
+            Text {
+              id: qrCaption
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.bottom: parent.bottom
+              anchors.bottomMargin: 4
+              visible: root.qrSsid !== ""
+              text: root.qrSsid
+              textFormat: Text.PlainText
+              color: "#000000"
+              font.family: root.fontFamily
+              font.pixelSize: 9
+            }
+          }
         }
       }
 
@@ -917,11 +1033,15 @@ Rectangle {
         spacing: 6
         visible: root.netStatus("ssid") !== ""
 
-        SectionHeader {
-          width: parent.width
-          title: "DNS PROVIDER"
-          fg: root.fg
-          fontFamily: root.fontFamily
+        Text {
+          text: "DNS PROVIDER"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.45
+          font.family: root.fontFamily
+          font.pixelSize: 9
+          font.letterSpacing: 1
+          leftPadding: 2
         }
 
         Row {
@@ -969,11 +1089,15 @@ Rectangle {
         width: parent.width
         spacing: 6
 
-        SectionHeader {
-          width: parent.width
-          title: "NETWORKS"
-          fg: root.fg
-          fontFamily: root.fontFamily
+        Text {
+          text: "NETWORKS"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.45
+          font.family: root.fontFamily
+          font.pixelSize: 9
+          font.letterSpacing: 1
+          leftPadding: 2
         }
 
         Pane {
