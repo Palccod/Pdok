@@ -1170,6 +1170,8 @@ Rectangle {
             Flickable {
               width: parent.width
               height: Math.min(wifiCol.implicitHeight, 2 * 40 + 4)
+              contentWidth: width
+              contentHeight: wifiCol.implicitHeight
               clip: true
               boundsBehavior: Flickable.StopAtBounds
               interactive: wifiCol.implicitHeight > height
@@ -1202,7 +1204,7 @@ Rectangle {
                   id: netIcon
                   anchors.left: parent.left
                   anchors.leftMargin: 10
-                  anchors.top: parent.top
+                  anchors.top: netRow.passwordOpen ? parent.top : undefined
                   anchors.topMargin: netRow.passwordOpen ? 8 : 0
                   anchors.verticalCenter: netRow.passwordOpen ? undefined : parent.verticalCenter
                   text: root.wifiIconFor(netRow.modelData.signal)
@@ -1374,6 +1376,8 @@ Rectangle {
           Flickable {
             width: parent.width
             height: Math.min(btCol.implicitHeight, 2 * 38 + 4)
+            contentWidth: width
+            contentHeight: btCol.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             interactive: btCol.implicitHeight > height
@@ -1394,7 +1398,7 @@ Rectangle {
               width: parent.width
               height: 38
               radius: 8
-              color: btMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : Qt.rgba(fg.r, fg.g, fg.b, 0.05)
+              color: btMa.containsMouse ? Qt.rgba(fg.r, fg.g, fg.b, 0.08) : "transparent"
 
               readonly property bool connected: btRow.modelData.connected === true
               readonly property bool paired: btRow.modelData.paired === true
