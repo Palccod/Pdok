@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "palccod.pdok",
   "name": "Pdok",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "palccod",
   "license": "MIT",
   "description": "Side notch dashboard: daily tasks, GitHub work dashboard, media controls, and quick settings in a drawer on the screen edge.",

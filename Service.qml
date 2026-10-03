@@ -110,6 +110,18 @@ Item {
   property int avatarVersion: 0
   readonly property string avatarPath: stateDir + "/pdok-avatar.png"
   readonly property string avatarTmpPath: stateDir + "/pdok-avatar.tmp"
+
+  // Custom avatar: a user-picked image (gif/png/jpg/jpeg/webp) copied
+  // byte-for-byte under the state dir, so animated GIFs stay animated. The
+  // copy lands under one fixed name — Qt sniffs the image format from the
+  // content, not the extension — and whether it's a GIF is remembered in
+  // the meta JSON so the footer knows to render an AnimatedImage. While
+  // active it takes priority over the GitHub avatar; clearing returns to it.
+  readonly property string customAvatarPath: stateDir + "/pdok-avatar-custom"
+  readonly property string customAvatarTmpPath: stateDir + "/pdok-avatar-custom.tmp"
+  readonly property string avatarMetaPath: stateDir + "/pdok-avatar.json"
+  property bool customAvatarActive: false
+  property bool customAvatarGif: false
   property var ghCommits: []
   property string ghUpdatedAt: ""
   property string ghError: ""
@@ -701,6 +713,96 @@ Item {
     onLoaded: root.avatarVersion++
     // File vanished (state dir wiped): retry the download on next refresh.
     onLoadFailed: root.avatarFetchedUrl = ""
+  }
+
+  // ---- custom avatar --------------------------------------------------------
+  // Meta JSON remembers active+isGif across restarts; the image itself is the
+  // copied file. setCustomAvatar returns a status line for the picker/IPC —
+  // "avatar=..." closes the picker, anything else is shown in place.
+  // Validation happens synchronously; the copy is the same cp-to-tmp →
+  // atomic-mv dance as the GitHub download, so the footer never reads a
+  // half-written file and the active flag only flips once the bytes are in
+  // place (a failed copy just leaves the previous avatar showing).
+
+  FileView {
+    id: avatarMetaFile
+    path: root.avatarMetaPath
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      try {
+        var d = JSON.parse(text())
+        root.customAvatarActive = d.active === true
+        root.customAvatarGif = d.gif === true
+      } catch (e) {}
+    }
+    onLoadFailed: { /* no custom avatar chosen yet */ }
+  }
+
+  function persistAvatarMeta() {
+    avatarMetaFile.setText(JSON.stringify({ active: root.customAvatarActive, gif: root.customAvatarGif }))
+  }
+
+  property bool _pendingAvatarGif: false
+
+  function setCustomAvatar(raw) {
+    var p = String(raw === undefined || raw === null ? "" : raw).trim()
+    // Empty path = reset to the GitHub avatar.
+    if (p.length === 0) return root.clearCustomAvatar()
+    if (p.charAt(0) === "~") p = home + p.slice(1)
+    if (p.charAt(0) !== "/") return "invalid path — use an absolute file path (~/... ok)"
+    if (!/^[A-Za-z0-9 ._(),'!+\/-]+$/.test(p)) return "invalid path — unsupported characters"
+    var parts = p.split("/")
+    for (var i = 0; i < parts.length; i++)
+      if (parts[i] === "..") return "invalid path — no .. segments"
+    if (!/\.(gif|png|jpg|jpeg|webp)$/i.test(p)) return "not an image — gif, png, jpg or webp"
+    if (avatarCopyProc.running || avatarPlaceProc.running) return "busy — try again in a moment"
+    root._pendingAvatarGif = /\.gif$/i.test(p)
+    avatarCopyProc.command = ["/usr/bin/cp", "--", p, root.customAvatarTmpPath]
+    avatarCopyProc.running = true
+    return "avatar=ok"
+  }
+
+  function clearCustomAvatar() {
+    if (avatarClearProc.running) return "busy — try again in a moment"
+    avatarClearProc.command = ["/usr/bin/rm", "-f", root.customAvatarPath, root.customAvatarTmpPath]
+    avatarClearProc.running = true
+    return "avatar=github"
+  }
+
+  Process {
+    id: avatarCopyProc
+    command: []
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) return
+      avatarPlaceProc.command = ["/usr/bin/mv", root.customAvatarTmpPath, root.customAvatarPath]
+      avatarPlaceProc.running = true
+    }
+  }
+
+  Process {
+    id: avatarPlaceProc
+    command: []
+    onExited: function(exitCode) {
+      if (exitCode !== 0) return
+      root.customAvatarActive = true
+      root.customAvatarGif = root._pendingAvatarGif
+      root.persistAvatarMeta()
+      root.avatarVersion++
+    }
+  }
+
+  Process {
+    id: avatarClearProc
+    command: []
+    onExited: function(exitCode) {
+      if (exitCode !== 0) return
+      root.customAvatarActive = false
+      root.customAvatarGif = false
+      root.persistAvatarMeta()
+      root.avatarVersion++
+    }
   }
 
   Process {

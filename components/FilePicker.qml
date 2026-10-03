@@ -1,0 +1,531 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell.Io
+import qs.Commons
+
+// In-drawer file browser for picking a profile picture. Same layer-shell
+// constraint as DirPicker — no native dialogs — so this walks the tree with
+// a fixed-argv `ls -1Ap` and offers subdirectories plus image files.
+// Clicking a file selects it (live preview in the footer, animated for
+// GIFs); "Use this image" hands the path to applyFile, set by the host,
+// which validates, copies and returns a status line — a reply starting
+// "avatar=" closes the picker, anything else is shown in place.
+// applyFile("") resets to the GitHub avatar.
+Rectangle {
+  id: root
+
+  property var svc: null
+  property color fg: Color.foreground
+  property string fontFamily: Style.font.family
+  property var applyFile: null
+
+  visible: false
+  z: 50
+  clip: true
+
+  property string currentDir: ""
+  property var dirs: []
+  property var files: []
+  property string selectedFile: ""
+  property string statusText: ""
+  // Pictures is the natural start point but may not exist — the first
+  // failed listing there falls back to home, once.
+  property bool _triedPictures: false
+
+  readonly property bool selectedIsGif: selectedFile.toLowerCase().endsWith(".gif")
+
+  readonly property var rows: {
+    var r = []
+    if (root.currentDir !== "/") r.push({ name: "..", isDir: true })
+    for (var i = 0; i < root.dirs.length; i++) r.push({ name: root.dirs[i], isDir: true })
+    for (var j = 0; j < root.files.length; j++) r.push({ name: root.files[j], isDir: false })
+    if (root.dirs.length === 0 && root.files.length === 0)
+      r.push({ name: "", isDir: false })
+    return r
+  }
+
+  function openFor(startDir) {
+    var d = String(startDir === undefined || startDir === null ? "" : startDir)
+    if (d.length === 0 && root.svc) d = root.svc.home + "/Pictures"
+    if (d.length === 0 && root.svc) d = root.svc.home
+    root._triedPictures = false
+    root.selectedFile = ""
+    root.statusText = ""
+    root.currentDir = d
+    root.visible = true
+    root.refresh()
+  }
+
+  function close() {
+    root.visible = false
+  }
+
+  function refresh() {
+    if (listProc.running) return
+    listProc.command = ["/usr/bin/ls", "-1Ap", "--", root.currentDir]
+    listProc.running = true
+  }
+
+  function goUp() {
+    var p = root.currentDir.replace(/\/+$/, "")
+    var idx = p.lastIndexOf("/")
+    root.currentDir = idx <= 0 ? "/" : p.slice(0, idx)
+    root.selectedFile = ""
+    root.refresh()
+  }
+
+  function enter(name) {
+    var base = root.currentDir.replace(/\/+$/, "")
+    root.currentDir = base === "" || base === "/" ? "/" + name : base + "/" + name
+    root.selectedFile = ""
+    root.refresh()
+  }
+
+  function goHome() {
+    if (!root.svc) return
+    root.currentDir = root.svc.home
+    root.selectedFile = ""
+    root.refresh()
+  }
+
+  function pick(name) {
+    var base = root.currentDir.replace(/\/+$/, "")
+    root.selectedFile = (base === "" || base === "/") ? "/" + name : base + "/" + name
+  }
+
+  function use() {
+    if (root.selectedFile === "") return
+    var msg = root.applyFile ? String(root.applyFile(root.selectedFile)) : "service unavailable"
+    if (msg.indexOf("avatar=") === 0) root.close()
+    else root.statusText = msg
+  }
+
+  function reset() {
+    var msg = root.applyFile ? String(root.applyFile("")) : "service unavailable"
+    if (msg.indexOf("avatar=") === 0) root.close()
+    else root.statusText = msg
+  }
+
+  Process {
+    id: listProc
+    onExited: function(exitCode) {
+      if (exitCode === 0) return
+      if (!root._triedPictures && root.svc
+          && root.currentDir === root.svc.home + "/Pictures") {
+        root._triedPictures = true
+        root.currentDir = root.svc.home
+        root.refresh()
+        return
+      }
+      root.statusText = "can't read that folder"
+    }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var outDirs = []
+        var outFiles = []
+        var lines = text.split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i]
+          if (line.length === 0) continue
+          if (line.endsWith("/")) {
+            var dn = line.slice(0, -1)
+            if (dn.length > 0 && dn !== "." && dn !== "..") outDirs.push(dn)
+          } else if (!root.svc || root.svc.isImageName(line)) {
+            outFiles.push(line)
+          }
+        }
+        var cmp = function(a, b) {
+          var la = a.toLowerCase(), lb = b.toLowerCase()
+          return la < lb ? -1 : (la > lb ? 1 : 0)
+        }
+        outDirs.sort(cmp)
+        outFiles.sort(cmp)
+        root.dirs = outDirs
+        root.files = outFiles
+      }
+    }
+  }
+
+  Rectangle {
+    anchors.fill: parent
+    color: Qt.rgba(0, 0, 0, 0.45)
+  }
+
+  Rectangle {
+    id: card
+    anchors.centerIn: parent
+    width: parent.width - Style.space(16)
+    height: Math.min(parent.height - Style.space(16), Style.space(480))
+    radius: Style.space(10)
+    color: Color.popups.background
+    border.width: 1
+    border.color: Util.alpha(root.fg, 0.18)
+
+    component PickButton: Rectangle {
+      id: pickBtn
+
+      property string label: ""
+      property bool primary: false
+      property bool enabled2: true
+      signal clicked()
+
+      width: pickLabel.implicitWidth + Style.space(16)
+      height: pickLabel.implicitHeight + Style.space(9)
+      radius: height / 2
+      color: !pickBtn.enabled2 ? "transparent"
+        : pickMa.pressed ? Style.pressedFill
+        : pickMa.containsMouse ? Style.hoverFill : "transparent"
+      border.width: 1
+      border.color: !pickBtn.enabled2 ? Util.alpha(root.fg, 0.15)
+        : pickBtn.primary ? Color.accent : Util.alpha(root.fg, 0.4)
+      opacity: pickBtn.enabled2 ? 0.9 : 0.4
+
+      Text {
+        id: pickLabel
+        anchors.centerIn: parent
+        text: pickBtn.label
+        textFormat: Text.PlainText
+        color: pickBtn.primary ? Color.accent : root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: pickBtn.primary
+      }
+
+      MouseArea {
+        id: pickMa
+        anchors.fill: parent
+        enabled: pickBtn.enabled2
+        hoverEnabled: true
+        cursorShape: pickBtn.enabled2 ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: pickBtn.clicked()
+      }
+    }
+
+    // Header
+    Item {
+      id: header
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.margins: Style.space(12)
+      height: Style.space(24)
+
+      Text {
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        text: "Choose profile picture"
+        textFormat: Text.PlainText
+        color: root.fg
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.bold: true
+      }
+
+      Rectangle {
+        id: closeBtn
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(22)
+        height: Style.space(22)
+        radius: height / 2
+        color: closeMa.containsMouse ? Style.hoverFill : "transparent"
+
+        Text {
+          anchors.centerIn: parent
+          text: "✕"
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        MouseArea {
+          id: closeMa
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.close()
+        }
+      }
+    }
+
+    // Path bar: home · current path · up
+    Rectangle {
+      id: pathBar
+      anchors.top: header.bottom
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.topMargin: Style.space(10)
+      anchors.leftMargin: Style.space(12)
+      anchors.rightMargin: Style.space(12)
+      height: Style.space(30)
+      radius: Style.space(6)
+      color: Util.alpha(root.fg, 0.05)
+
+      Rectangle {
+        id: homeBtn
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(3)
+        width: Style.space(24)
+        height: Style.space(24)
+        radius: height / 2
+        color: homeMa.containsMouse ? Style.hoverFill : "transparent"
+
+        Text {
+          anchors.centerIn: parent
+          text: "󰋜"
+          textFormat: Text.PlainText
+          color: root.fg
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        MouseArea {
+          id: homeMa
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.goHome()
+        }
+      }
+
+      Text {
+        anchors.left: homeBtn.right
+        anchors.leftMargin: Style.space(8)
+        anchors.right: upBtn.left
+        anchors.rightMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.currentDir
+        textFormat: Text.PlainText
+        color: root.fg
+        opacity: 0.75
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideMiddle
+      }
+
+      Rectangle {
+        id: upBtn
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.rightMargin: Style.space(3)
+        width: Style.space(24)
+        height: Style.space(24)
+        radius: height / 2
+        color: upMa.containsMouse ? Style.hoverFill : "transparent"
+
+        Text {
+          anchors.centerIn: parent
+          text: "󰁔"
+          textFormat: Text.PlainText
+          color: root.fg
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        MouseArea {
+          id: upMa
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.goUp()
+        }
+      }
+    }
+
+    // Folder + image list
+    ListView {
+      id: fileList
+      anchors.top: pathBar.bottom
+      anchors.bottom: statusText.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.topMargin: Style.space(8)
+      anchors.bottomMargin: Style.space(8)
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(6)
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      model: root.rows
+
+      delegate: Item {
+        id: fileRow
+
+        required property var modelData
+        required property int index
+
+        readonly property bool isUp: modelData.name === ".."
+        readonly property bool isEmpty: modelData.name === ""
+        readonly property bool isSelected: !modelData.isDir
+          && root.selectedFile !== ""
+          && root.currentDir.replace(/\/+$/, "") + "/" + modelData.name === root.selectedFile
+
+        width: fileList.width
+        height: Style.space(26)
+
+        Rectangle {
+          anchors.fill: parent
+          anchors.leftMargin: Style.space(4)
+          anchors.rightMargin: Style.space(4)
+          radius: Style.space(5)
+          color: fileRow.isEmpty ? "transparent"
+            : fileRow.isSelected ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16)
+            : rowMa.pressed ? Style.pressedFill
+            : rowMa.containsMouse ? Style.hoverFill : "transparent"
+          border.width: fileRow.isSelected ? 1 : 0
+          border.color: Util.alpha(Color.accent, 0.5)
+        }
+
+        Text {
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(12)
+          anchors.verticalCenter: parent.verticalCenter
+          text: fileRow.isUp ? "󰁔" : (fileRow.modelData.isDir ? "󰉋" : "󰉍")
+          textFormat: Text.PlainText
+          color: fileRow.isSelected ? Color.accent : root.fg
+          opacity: fileRow.isUp ? 0.5 : (fileRow.modelData.isDir ? 0.65 : 0.9)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          visible: !fileRow.isEmpty
+        }
+
+        Text {
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(34)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(12)
+          anchors.verticalCenter: parent.verticalCenter
+          text: fileRow.isEmpty ? "no images here" : fileRow.modelData.name
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: fileRow.isEmpty ? 0.35 : (fileRow.modelData.isDir ? 0.9 : 1.0)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          elide: Text.ElideRight
+        }
+
+        MouseArea {
+          id: rowMa
+          anchors.fill: parent
+          enabled: !fileRow.isEmpty
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: {
+            if (fileRow.isUp) root.goUp()
+            else if (fileRow.modelData.isDir) root.enter(fileRow.modelData.name)
+            else root.pick(fileRow.modelData.name)
+          }
+        }
+      }
+    }
+
+    // Status / error line
+    Text {
+      id: statusText
+      anchors.bottom: footer.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottomMargin: Style.space(6)
+      anchors.leftMargin: Style.space(12)
+      anchors.rightMargin: Style.space(12)
+      height: text.length > 0 ? implicitHeight : 0
+      text: root.statusText
+      textFormat: Text.PlainText
+      color: Color.urgent
+      opacity: 0.9
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      wrapMode: Text.WordWrap
+      visible: text.length > 0
+    }
+
+    // Footer: live preview of the selected file + actions
+    Item {
+      id: footer
+      anchors.bottom: parent.bottom
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottomMargin: Style.space(12)
+      anchors.leftMargin: Style.space(12)
+      anchors.rightMargin: Style.space(12)
+      height: Style.space(34)
+
+      Rectangle {
+        id: previewItem
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(34)
+        height: Style.space(34)
+        radius: height / 2
+        color: Util.alpha(root.fg, 0.08)
+        clip: true
+        border.width: 1
+        border.color: root.selectedFile !== "" ? Color.accent : Util.alpha(root.fg, 0.25)
+        visible: root.selectedFile !== ""
+
+        // Animated for GIFs; a static image just shows its single frame.
+        AnimatedImage {
+          anchors.fill: parent
+          visible: root.selectedIsGif
+          source: root.selectedIsGif ? "file://" + root.selectedFile : ""
+          fillMode: Image.PreserveAspectCrop
+          asynchronous: false
+          smooth: true
+          playing: root.visible && root.selectedIsGif
+          cache: false
+        }
+
+        Image {
+          anchors.fill: parent
+          visible: !root.selectedIsGif
+          source: !root.selectedIsGif && root.selectedFile !== "" ? "file://" + root.selectedFile : ""
+          fillMode: Image.PreserveAspectCrop
+          smooth: true
+          asynchronous: true
+        }
+      }
+
+      Text {
+        anchors.left: previewItem.right
+        anchors.leftMargin: Style.space(8)
+        anchors.right: footerButtons.left
+        anchors.rightMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.selectedFile !== "" ? root.selectedFile.split("/").pop() : "pick an image"
+        textFormat: Text.PlainText
+        color: root.fg
+        opacity: root.selectedFile !== "" ? 0.9 : 0.4
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideMiddle
+      }
+
+      Row {
+        id: footerButtons
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(6)
+
+        PickButton {
+          label: "Use this image"
+          primary: true
+          enabled2: root.selectedFile !== ""
+          onClicked: root.use()
+        }
+
+        PickButton {
+          label: "Reset"
+          onClicked: root.reset()
+        }
+
+        PickButton {
+          label: "Cancel"
+          onClicked: root.close()
+        }
+      }
+    }
+  }
+}

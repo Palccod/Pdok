@@ -68,6 +68,10 @@ Panel {
   // IPC routes open/close/toggle (see Service.panelForFocused).
   readonly property string screenName: sidePanel.screen ? sidePanel.screen.name : ""
 
+  // Called on the focused panel by pickAvatar (IPC); the picker lives in
+  // this same scope, so opening it needs no nonce round-trip.
+  function openAvatarPicker() { avatarPicker.openFor("") }
+
   Component.onDestruction: {
     if (svc && typeof svc.unregisterPanel === "function") svc.unregisterPanel(root)
   }
@@ -134,6 +138,7 @@ Panel {
         focusedScreen: root.svc && root.svc.focusedScreenName ? root.svc.focusedScreenName() : "",
         gifs: root.svc ? root.svc.gifFiles.length : -1,
         gifDir: root.svc ? root.svc.activeGifDir : "",
+        avatarCustom: svc ? svc.customAvatarActive : false,
         dailyTasks: root.svc ? root.svc.daily.tasks.length : -1,
         doneToday: root.svc ? root.svc.todayDoneIds().length : -1,
         streak: root.svc ? root.svc.streak : -1,
@@ -150,6 +155,32 @@ Panel {
 
     function setGifDir(dir: string): string {
       return root.applyGifDir(dir)
+    }
+
+    // Custom footer avatar: an absolute image path (gif/png/jpg/jpeg/webp;
+    // ~ ok) copied into the service's state dir — GIFs stay animated.
+    // No arg equivalent: clearAvatar() returns to the GitHub avatar.
+    function setAvatar(path: string): string {
+      return svc ? svc.setCustomAvatar(path) : "service unavailable"
+    }
+
+    function clearAvatar(): string {
+      return svc ? svc.setCustomAvatar("") : "service unavailable"
+    }
+
+    // Open the drawer (on the focused monitor) with the avatar picker up.
+    function pickAvatar(): string {
+      if (root.svc && typeof root.svc.panelForFocused === "function") {
+        var fp = root.svc.panelForFocused()
+        if (fp) {
+          if (typeof fp.open === "function") fp.open()
+          if (typeof fp.openAvatarPicker === "function") fp.openAvatarPicker()
+          return "picker opened"
+        }
+      }
+      root.open()
+      avatarPicker.openFor("")
+      return "picker opened"
     }
 
     // Open the drawer (on the focused monitor) on Daily with the picker up.
@@ -442,6 +473,19 @@ Panel {
         svc: root.svc
         fg: root.foreground
         fontFamily: root.fontFamily
+        onPickRequested: avatarPicker.openFor("")
+      }
+
+      // Avatar picker overlay — covers the whole drawer, above every tab.
+      FilePicker {
+        id: avatarPicker
+        anchors.fill: parent
+        svc: root.svc
+        fg: root.foreground
+        fontFamily: root.fontFamily
+        applyFile: function(path) {
+          return svc ? svc.setCustomAvatar(path) : "service unavailable"
+        }
       }
     }
   }
