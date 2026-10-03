@@ -620,8 +620,10 @@ Rectangle {
     required property string label
     required property string value
 
-    // Two panels per Grid row; parent is the Grid.
-    width: parent ? (parent.width - (parent.columnSpacing || 0)) / 2 : 0
+    property int perRow: 2
+
+    // Flexible: chip width adapts to how many share its row.
+    width: parent ? (parent.width - 8 * (perRow - 1)) / perRow : 0
     color: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
     radius: 8
     height: 48
@@ -1492,25 +1494,34 @@ Rectangle {
       Pane {
         height: sysGrid.implicitHeight + 30
 
-        Grid {
+        Column {
           id: sysGrid
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.top: parent.top
           anchors.topMargin: 10
           width: parent.width - 16
-          columns: 2
-          columnSpacing: 8
-          rowSpacing: 8
+          spacing: 8
 
-          SysPanel { icon: root.glyphCpu; label: "CPU"; value: root.cpuPerc + "%" }
-          SysPanel { icon: root.glyphRam; label: "MEMORY"; value: root.ramPerc + "%" }
-          SysPanel { icon: root.glyphDisk; label: "DISK /"; value: root.diskText === "" ? "…" : root.diskText }
-          SysPanel {
-            icon: root.glyphNet
-            label: "NETWORK"
-            value: "↓" + root.fmtRate(root.downRate) + " ↑" + root.fmtRate(root.upRate)
+          Row {
+            width: parent.width
+            spacing: 8
+
+            SysPanel { icon: root.glyphCpu; label: "CPU"; value: root.cpuPerc + "%"; perRow: 3 }
+            SysPanel { icon: root.glyphRam; label: "MEMORY"; value: root.ramPerc + "%"; perRow: 3 }
+            SysPanel { icon: root.glyphTemp; label: "TEMP"; value: root.cpuTemp === "" ? "…" : root.cpuTemp; perRow: 3 }
           }
-          SysPanel { icon: root.glyphTemp; label: "CPU TEMP"; value: root.cpuTemp === "" ? "…" : root.cpuTemp }
+
+          Row {
+            width: parent.width
+            spacing: 8
+
+            SysPanel { icon: root.glyphDisk; label: "DISK /"; value: root.diskText === "" ? "…" : root.diskText }
+            SysPanel {
+              icon: root.glyphNet
+              label: "NETWORK"
+              value: "↓" + root.fmtRate(root.downRate) + " ↑" + root.fmtRate(root.upRate)
+            }
+          }
         }
 
         Text {
