@@ -56,6 +56,7 @@ Rectangle {
   readonly property string glyphRam: "󰍛"
   readonly property string glyphDisk: "󰋊"
   readonly property string glyphNet: "󰤢"
+  readonly property string glyphTemp: "󰏈"
   readonly property string glyphRefresh: "󰑐"
 
   // ---------------------------------------------------------------- wi-fi
@@ -472,6 +473,7 @@ Rectangle {
   property string uptimeText: ""
   property var cpuLast: null
   property var netLast: null
+  property string cpuTemp: ""
 
   // /proc samples via one fixed-constant shell line. The XHR file://
   // reads this replaces were unreliable (silently empty across shell
@@ -481,7 +483,11 @@ Rectangle {
     command: ["/bin/sh", "-c",
       "head -n 1 /proc/stat; " +
       "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; " +
-      "cat /proc/net/dev"]
+      "cat /proc/net/dev; " +
+      "t=0; for d in /sys/class/hwmon/hwmon*; do n=$(cat $d/name 2>/dev/null); " +
+      "case $n in *k10temp*|*coretemp*|*zenpower*|*cpu_thermal*) " +
+      "for f in $d/temp*_input; do v=$(cat $f 2>/dev/null); [ -n \"$v\" ] && [ \"$v\" -gt \"$t\" ] 2>/dev/null && t=$v; done; break;; esac; done; " +
+      "[ \"$t\" = 0 ] && t=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null); echo $t"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.parseProcSample(text, Date.now())
@@ -543,6 +549,15 @@ Rectangle {
       root.upRate = Math.max(0, (tx - root.netLast.tx) / dts)
     }
     root.netLast = { at: now, rx: rx, tx: tx }
+
+    // CPU temperature: the trailing probe line is a bare millidegree value.
+    for (var t = lines.length - 1; t >= 0; t--) {
+      var tv = lines[t].trim()
+      if (/^\d+$/.test(tv)) {
+        root.cpuTemp = Math.round(Number(tv) / 1000) + "°C"
+        break
+      }
+    }
   }
 
   function fmtBytes(n) {
@@ -1495,6 +1510,7 @@ Rectangle {
             label: "NETWORK"
             value: "↓" + root.fmtRate(root.downRate) + " ↑" + root.fmtRate(root.upRate)
           }
+          SysPanel { icon: root.glyphTemp; label: "CPU TEMP"; value: root.cpuTemp === "" ? "…" : root.cpuTemp }
         }
 
         Text {
