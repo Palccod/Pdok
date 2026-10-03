@@ -97,7 +97,8 @@ omarchy-shell palccod.pdok setTab daily    # daily | dash | work | media | contr
 omarchy-shell palccod.pdok setSide left    # right | left
 omarchy-shell palccod.pdok setGifDir ~/Pictures/gifs   # custom deck folder ("" = default)
 omarchy-shell palccod.pdok pickGifDir     # open the drawer on the focused screen with the folder picker up
-omarchy-shell palccod.pdok setAvatar ~/Pictures/me.gif   # custom footer avatar, GIFs stay animated
+omarchy-shell palccod.pdok setAvatar ~/Pictures/me.gif   # custom footer avatar, GIFs stay animated, whole image visible
+omarchy-shell palccod.pdok setAvatarFramed ~/Pictures/me.gif 2.5 0.4 -0.2   # + zoom & pan (1 = whole image, offsets -1..1)
 omarchy-shell palccod.pdok clearAvatar    # back to the GitHub profile picture
 omarchy-shell palccod.pdok dailyAddTask "Water the plants"
 omarchy-shell palccod.pdok dailyToggleTask 0   # toggle by index

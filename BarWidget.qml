@@ -159,9 +159,14 @@ Panel {
 
     // Custom footer avatar: an absolute image path (gif/png/jpg/jpeg/webp;
     // ~ ok) copied into the service's state dir — GIFs stay animated.
-    // No arg equivalent: clearAvatar() returns to the GitHub avatar.
+    // Rendered whole-image (fit); setAvatarFramed adds the picker cropper's
+    // zoom (1..8) and pan offsets (-1..1). clearAvatar returns to GitHub.
     function setAvatar(path: string): string {
       return svc ? svc.setCustomAvatar(path) : "service unavailable"
+    }
+
+    function setAvatarFramed(path: string, zoom: real, ox: real, oy: real): string {
+      return svc ? svc.setCustomAvatar(path, zoom, ox, oy) : "service unavailable"
     }
 
     function clearAvatar(): string {
@@ -483,8 +488,8 @@ Panel {
         svc: root.svc
         fg: root.foreground
         fontFamily: root.fontFamily
-        applyFile: function(path) {
-          return svc ? svc.setCustomAvatar(path) : "service unavailable"
+        applyFile: function(path, zoom, ox, oy) {
+          return svc ? svc.setCustomAvatar(path, zoom, ox, oy) : "service unavailable"
         }
       }
     }

@@ -36,6 +36,11 @@ Rectangle {
   readonly property string customUrl: useCustom && svc
     ? "file://" + String(svc.customAvatarPath || "") + "?v=" + (svc.avatarVersion || 0) : ""
   readonly property bool customReady: customGif.visible || customImg.visible
+  // Framing dialed in on the picker's preview (zoom 1 = whole image, pan
+  // offsets normalized -1..1 across each axis's actual overflow).
+  readonly property real framingZoom: svc ? Number(svc.avatarZoom) || 1 : 1
+  readonly property real framingOx: svc ? Number(svc.avatarOx) || 0 : 0
+  readonly property real framingOy: svc ? Number(svc.avatarOy) || 0 : 0
 
   color: "transparent"
   height: Style.space(58)
@@ -59,6 +64,7 @@ Rectangle {
       id: avatarCircle
       width: Style.space(38)
       height: Style.space(38)
+      clip: true
       anchors.verticalCenter: parent.verticalCenter
 
       // Circle mask shared by every avatar candidate — Rectangle.clip clips
@@ -84,47 +90,77 @@ Rectangle {
         color: Util.alpha(root.fg, 0.08)
       }
 
-      // User-picked avatar, animated when it's a GIF (GifDeck's pattern:
-      // AnimatedImage with playing bound, cache off so re-picks reload).
-      AnimatedImage {
-        id: customGif
-        readonly property bool active: root.useCustom && root.svc.customAvatarGif === true
+      // Custom pick wrappers: the layer+mask must live on a CIRCLE-SIZED
+      // item — MultiEffect stretches maskSource over the source item's own
+      // bounds, so masking the oversized image directly stretches the circle
+      // into a square. The oversized image is a plain child; the wrapper's
+      // layer clips it to the circle box and the mask rounds it.
+      // NOTE: the wrapper itself is always visible — binding its visible to
+      // the child's knots the two together (the child's reported visibility
+      // then depends on the wrapper's) and both stay false forever.
+      Item {
         anchors.fill: parent
-        visible: active && status === AnimatedImage.Ready
-        source: active ? root.customUrl : ""
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: false
-        smooth: true
-        playing: active && avatarCircle.visible
-        cache: false
         layer.enabled: true
         layer.effect: MultiEffect {
           maskEnabled: true
           maskSource: circleMask
         }
 
-        onStatusChanged: {
-          if (status === AnimatedImage.Ready) {
-            playing = true
-            paused = false
+        // Animated when it's a GIF (GifDeck's pattern: playing bound, cache
+        // off so re-picks reload). Geometry is manual — fit-scaled by the
+        // saved framing, pannable — so a huge GIF (1920×1080 retro2_live)
+        // can show its whole frame instead of a center slice.
+        AnimatedImage {
+          id: customGif
+          readonly property bool active: root.useCustom && root.svc.customAvatarGif === true
+          visible: active && status === AnimatedImage.Ready
+          source: active ? root.customUrl : ""
+          asynchronous: false
+          smooth: true
+          playing: active && avatarCircle.visible
+          cache: false
+          readonly property real natW: implicitWidth || 1
+          readonly property real natH: implicitHeight || 1
+          readonly property real fit: Math.min(avatarCircle.width / natW, avatarCircle.height / natH)
+          readonly property real sc: fit * root.framingZoom
+          width: natW * sc
+          height: natH * sc
+          x: (avatarCircle.width - width) / 2 + root.framingOx * Math.max(0, (width - avatarCircle.width) / 2)
+          y: (avatarCircle.height - height) / 2 + root.framingOy * Math.max(0, (height - avatarCircle.height) / 2)
+
+          onStatusChanged: {
+            if (status === AnimatedImage.Ready) {
+              playing = true
+              paused = false
+            }
           }
         }
       }
 
       // Static custom pick (png/jpg/webp).
-      Image {
-        id: customImg
-        readonly property bool active: root.useCustom && root.svc.customAvatarGif === false
+      Item {
         anchors.fill: parent
-        visible: active && status === Image.Ready
-        source: active ? root.customUrl : ""
-        fillMode: Image.PreserveAspectCrop
-        smooth: true
-        asynchronous: true
         layer.enabled: true
         layer.effect: MultiEffect {
           maskEnabled: true
           maskSource: circleMask
+        }
+
+        Image {
+          id: customImg
+          readonly property bool active: root.useCustom && root.svc.customAvatarGif === false
+          visible: active && status === Image.Ready
+          source: active ? root.customUrl : ""
+          smooth: true
+          asynchronous: true
+          readonly property real natW: implicitWidth || 1
+          readonly property real natH: implicitHeight || 1
+          readonly property real fit: Math.min(avatarCircle.width / natW, avatarCircle.height / natH)
+          readonly property real sc: fit * root.framingZoom
+          width: natW * sc
+          height: natH * sc
+          x: (avatarCircle.width - width) / 2 + root.framingOx * Math.max(0, (width - avatarCircle.width) / 2)
+          y: (avatarCircle.height - height) / 2 + root.framingOy * Math.max(0, (height - avatarCircle.height) / 2)
         }
       }
 
@@ -187,18 +223,8 @@ Rectangle {
         font.bold: true
       }
 
-      // Ring on top so it stays visible over opaque images; accent on hover
-      // — the avatar is a button.
-      Rectangle {
-        anchors.fill: parent
-        radius: width / 2
-        color: "transparent"
-        border.width: 1
-        border.color: avatarMa.containsMouse ? root.accent : root.fg
-        opacity: 0.9
-      }
-
-      // Hover affordance: scrim + pencil over the image.
+      // Hover affordance: scrim + pencil over the image — the avatar is a
+      // button. No ring; the user wants the circle border gone.
       Rectangle {
         anchors.fill: parent
         radius: width / 2

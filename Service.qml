@@ -117,11 +117,20 @@ Item {
   // content, not the extension — and whether it's a GIF is remembered in
   // the meta JSON so the footer knows to render an AnimatedImage. While
   // active it takes priority over the GitHub avatar; clearing returns to it.
+  //
+  // The meta also stores the FRAMING the user dialed in on the picker's
+  // preview: zoom (1 = whole image visible inside the circle, up to 8) and
+  // ox/oy pan offsets normalized to -1..1 across the overflow each axis
+  // actually has. Renderers recompute pixel geometry from the image's
+  // natural size, so the numbers survive restarts and size changes.
   readonly property string customAvatarPath: stateDir + "/pdok-avatar-custom"
   readonly property string customAvatarTmpPath: stateDir + "/pdok-avatar-custom.tmp"
   readonly property string avatarMetaPath: stateDir + "/pdok-avatar.json"
   property bool customAvatarActive: false
   property bool customAvatarGif: false
+  property real avatarZoom: 1.0
+  property real avatarOx: 0.0
+  property real avatarOy: 0.0
   property var ghCommits: []
   property string ghUpdatedAt: ""
   property string ghError: ""
@@ -734,21 +743,54 @@ Item {
         var d = JSON.parse(text())
         root.customAvatarActive = d.active === true
         root.customAvatarGif = d.gif === true
+        root.applyAvatarFraming(d.zoom, d.ox, d.oy)
       } catch (e) {}
     }
     onLoadFailed: { /* no custom avatar chosen yet */ }
   }
 
   function persistAvatarMeta() {
-    avatarMetaFile.setText(JSON.stringify({ active: root.customAvatarActive, gif: root.customAvatarGif }))
+    avatarMetaFile.setText(JSON.stringify({
+      active: root.customAvatarActive,
+      gif: root.customAvatarGif,
+      zoom: root.avatarZoom,
+      ox: root.avatarOx,
+      oy: root.avatarOy
+    }))
+  }
+
+  // Sanitized framing: zoom 1 (whole image) .. 8, pan offsets -1..1.
+  function applyAvatarFraming(zoom, ox, oy) {
+    var z = Number(zoom)
+    root.avatarZoom = isFinite(z) ? Math.min(8, Math.max(1, z)) : 1
+    var x = Number(ox)
+    root.avatarOx = isFinite(x) ? Math.min(1, Math.max(-1, x)) : 0
+    var y = Number(oy)
+    root.avatarOy = isFinite(y) ? Math.min(1, Math.max(-1, y)) : 0
   }
 
   property bool _pendingAvatarGif: false
+  property real _pendingZoom: 1.0
+  property real _pendingOx: 0.0
+  property real _pendingOy: 0.0
 
-  function setCustomAvatar(raw) {
+  function setCustomAvatar(raw, zoom, ox, oy) {
     var p = String(raw === undefined || raw === null ? "" : raw).trim()
     // Empty path = reset to the GitHub avatar.
     if (p.length === 0) return root.clearCustomAvatar()
+    root.applyAvatarFraming(zoom, ox, oy)
+    root._pendingZoom = root.avatarZoom
+    root._pendingOx = root.avatarOx
+    root._pendingOy = root.avatarOy
+    // The picker preselects the already-applied avatar so its framing can
+    // be adjusted without re-finding the file; that needs no re-copy —
+    // just save the new framing (the gif flag stays whatever it was).
+    if (p === root.customAvatarPath) {
+      root.customAvatarActive = true
+      root.persistAvatarMeta()
+      root.avatarVersion++
+      return "avatar=ok"
+    }
     if (p.charAt(0) === "~") p = home + p.slice(1)
     if (p.charAt(0) !== "/") return "invalid path — use an absolute file path (~/... ok)"
     if (!/^[A-Za-z0-9 ._(),'!+\/-]+$/.test(p)) return "invalid path — unsupported characters"
@@ -788,6 +830,7 @@ Item {
       if (exitCode !== 0) return
       root.customAvatarActive = true
       root.customAvatarGif = root._pendingAvatarGif
+      root.applyAvatarFraming(root._pendingZoom, root._pendingOx, root._pendingOy)
       root.persistAvatarMeta()
       root.avatarVersion++
     }
