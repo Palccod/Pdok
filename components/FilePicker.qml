@@ -466,180 +466,245 @@ Rectangle {
       anchors.bottomMargin: Style.space(12)
       anchors.leftMargin: Style.space(12)
       anchors.rightMargin: Style.space(12)
-      height: root.selectedFile !== "" ? Style.space(100) : Style.space(34)
+      height: root.selectedFile !== "" ? Style.space(114) : Style.space(34)
       Behavior on height { NumberAnimation { duration: 120 } }
 
-      // Cropper preview: the image fits whole inside the circle at zoom 1;
-      // drag pans, wheel zooms (up to 8x), double-click resets. This exact
-      // framing is what "Use this image" saves with the avatar.
-      Item {
-        id: previewItem
+      Text {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(84)
-        height: Style.space(84)
-        clip: true
-        visible: root.selectedFile !== ""
-
-        property real zoom: 1.0
-        property real ox: 0.0
-        property real oy: 0.0
-
-        // The visible image drives the pan bounds (gif or still).
-        readonly property var visImg: root.selectedIsGif ? pvGif : pvStill
-
-        function resetFraming() {
-          zoom = 1.0
-          ox = 0.0
-          oy = 0.0
-        }
-
-        Item {
-          id: previewMask
-          anchors.fill: parent
-          visible: false
-          layer.enabled: true
-
-          Rectangle {
-            anchors.fill: parent
-            radius: width / 2
-            color: "black"
-          }
-        }
-
-        Rectangle {
-          anchors.fill: parent
-          radius: width / 2
-          color: Util.alpha(root.fg, 0.08)
-        }
-
-        // The layer+mask lives on a circle-sized wrapper — MultiEffect
-        // stretches maskSource over the source item's own bounds, so
-        // masking the oversized image directly would square the circle.
-        // Wrappers stay always-visible; the child's own visible gates.
-        Item {
-          anchors.fill: parent
-          layer.enabled: true
-          layer.effect: MultiEffect {
-            maskEnabled: true
-            maskSource: previewMask
-          }
-
-          AnimatedImage {
-            id: pvGif
-            visible: root.selectedIsGif && status === AnimatedImage.Ready
-            source: root.selectedIsGif ? "file://" + root.selectedFile : ""
-            asynchronous: false
-            smooth: true
-            playing: previewItem.visible
-            cache: false
-            readonly property real natW: implicitWidth || 1
-            readonly property real natH: implicitHeight || 1
-            readonly property real fit: Math.min(previewItem.width / natW, previewItem.height / natH)
-            readonly property real sc: fit * previewItem.zoom
-            width: natW * sc
-            height: natH * sc
-            x: (previewItem.width - width) / 2 + previewItem.ox * Math.max(0, (width - previewItem.width) / 2)
-            y: (previewItem.height - height) / 2 + previewItem.oy * Math.max(0, (height - previewItem.height) / 2)
-          }
-        }
-
-        Item {
-          anchors.fill: parent
-          layer.enabled: true
-          layer.effect: MultiEffect {
-            maskEnabled: true
-            maskSource: previewMask
-          }
-
-          Image {
-            id: pvStill
-            visible: !root.selectedIsGif && status === Image.Ready
-            source: !root.selectedIsGif && root.selectedFile !== "" ? "file://" + root.selectedFile : ""
-            smooth: true
-            asynchronous: true
-            readonly property real natW: implicitWidth || 1
-            readonly property real natH: implicitHeight || 1
-            readonly property real fit: Math.min(previewItem.width / natW, previewItem.height / natH)
-            readonly property real sc: fit * previewItem.zoom
-            width: natW * sc
-            height: natH * sc
-            x: (previewItem.width - width) / 2 + previewItem.ox * Math.max(0, (width - previewItem.width) / 2)
-            y: (previewItem.height - height) / 2 + previewItem.oy * Math.max(0, (height - previewItem.height) / 2)
-          }
-        }
-
-        MouseArea {
-          id: panMa
-          anchors.fill: parent
-          cursorShape: panMa.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-          property real lastX: 0
-          property real lastY: 0
-          onPressed: function(mouse) {
-            lastX = mouse.x
-            lastY = mouse.y
-          }
-          onPositionChanged: function(mouse) {
-            if (!pressed) return
-            var maxX = Math.max(0, (previewItem.visImg.width - previewItem.width) / 2)
-            var maxY = Math.max(0, (previewItem.visImg.height - previewItem.height) / 2)
-            if (maxX > 0)
-              previewItem.ox = Math.min(1, Math.max(-1, previewItem.ox + (mouse.x - lastX) / maxX))
-            if (maxY > 0)
-              previewItem.oy = Math.min(1, Math.max(-1, previewItem.oy + (mouse.y - lastY) / maxY))
-            lastX = mouse.x
-            lastY = mouse.y
-          }
-          onDoubleClicked: previewItem.resetFraming()
-        }
-
-        WheelHandler {
-          onWheel: function(ev) {
-            previewItem.zoom = Math.min(8, Math.max(1, previewItem.zoom * (ev.angleDelta.y > 0 ? 1.12 : 0.89)))
-          }
-        }
-      }
-
-      Text {
-        anchors.left: previewItem.right
-        anchors.leftMargin: previewItem.visible ? Style.space(8) : 0
-        anchors.right: footerButtons.left
-        anchors.rightMargin: Style.space(8)
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.selectedFile === ""
-          ? "pick an image"
-          : (root.selectedFile === (root.svc ? String(root.svc.customAvatarPath || "") : "")
-              ? "(current)"
-              : root.selectedFile.split("/").pop())
+        text: "pick an image"
         textFormat: Text.PlainText
         color: root.fg
-        opacity: root.selectedFile !== "" ? 0.9 : 0.4
+        opacity: 0.4
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        elide: Text.ElideMiddle
+        visible: root.selectedFile === ""
       }
 
-      Row {
-        id: footerButtons
+      Column {
+        id: cropColumn
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(4)
+        visible: root.selectedFile !== ""
+
+        // Cropper preview: the image fits whole inside the circle at zoom 1;
+        // drag pans, wheel zooms, the −/1:1/+ buttons do the same (wheel and
+        // drag can be finicky on some setups, the buttons never are). This
+        // exact framing is what "Use this image" saves with the avatar.
+        Item {
+          id: previewItem
+          width: Style.space(84)
+          height: Style.space(84)
+          clip: true
+
+          property real zoom: 1.0
+          property real ox: 0.0
+          property real oy: 0.0
+
+          // The visible image drives the pan bounds (gif or still).
+          readonly property var visImg: root.selectedIsGif ? pvGif : pvStill
+
+          function resetFraming() {
+            zoom = 1.0
+            ox = 0.0
+            oy = 0.0
+          }
+
+          function zoomBy(f) {
+            zoom = Math.min(8, Math.max(1, zoom * f))
+          }
+
+          Item {
+            id: previewMask
+            anchors.fill: parent
+            visible: false
+            layer.enabled: true
+
+            Rectangle {
+              anchors.fill: parent
+              radius: width / 2
+              color: "black"
+            }
+          }
+
+          // The layer+mask lives on a circle-sized wrapper — MultiEffect
+          // stretches maskSource over the source item's own bounds, so
+          // masking the oversized image directly would square the circle.
+          // Wrappers stay always-visible; the child's own visible gates.
+          Item {
+            anchors.fill: parent
+            layer.enabled: true
+            layer.effect: MultiEffect {
+              maskEnabled: true
+              maskSource: previewMask
+            }
+
+            AnimatedImage {
+              id: pvGif
+              visible: root.selectedIsGif && status === AnimatedImage.Ready
+              source: root.selectedIsGif ? "file://" + root.selectedFile : ""
+              asynchronous: false
+              smooth: true
+              playing: previewItem.visible
+              cache: false
+              readonly property real natW: implicitWidth || 1
+              readonly property real natH: implicitHeight || 1
+              readonly property real fit: Math.min(previewItem.width / natW, previewItem.height / natH)
+              readonly property real sc: fit * previewItem.zoom
+              width: natW * sc
+              height: natH * sc
+              x: (previewItem.width - width) / 2 + previewItem.ox * Math.max(0, (width - previewItem.width) / 2)
+              y: (previewItem.height - height) / 2 + previewItem.oy * Math.max(0, (height - previewItem.height) / 2)
+            }
+          }
+
+          Item {
+            anchors.fill: parent
+            layer.enabled: true
+            layer.effect: MultiEffect {
+              maskEnabled: true
+              maskSource: previewMask
+            }
+
+            Image {
+              id: pvStill
+              visible: !root.selectedIsGif && status === Image.Ready
+              source: !root.selectedIsGif && root.selectedFile !== "" ? "file://" + root.selectedFile : ""
+              smooth: true
+              asynchronous: true
+              readonly property real natW: implicitWidth || 1
+              readonly property real natH: implicitHeight || 1
+              readonly property real fit: Math.min(previewItem.width / natW, previewItem.height / natH)
+              readonly property real sc: fit * previewItem.zoom
+              width: natW * sc
+              height: natH * sc
+              x: (previewItem.width - width) / 2 + previewItem.ox * Math.max(0, (width - previewItem.width) / 2)
+              y: (previewItem.height - height) / 2 + previewItem.oy * Math.max(0, (height - previewItem.height) / 2)
+            }
+          }
+
+          MouseArea {
+            id: panMa
+            anchors.fill: parent
+            cursorShape: panMa.pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            property real lastX: 0
+            property real lastY: 0
+            onPressed: function(mouse) {
+              lastX = mouse.x
+              lastY = mouse.y
+            }
+            onPositionChanged: function(mouse) {
+              if (!pressed) return
+              var maxX = Math.max(0, (previewItem.visImg.width - previewItem.width) / 2)
+              var maxY = Math.max(0, (previewItem.visImg.height - previewItem.height) / 2)
+              if (maxX > 0)
+                previewItem.ox = Math.min(1, Math.max(-1, previewItem.ox + (mouse.x - lastX) / maxX))
+              if (maxY > 0)
+                previewItem.oy = Math.min(1, Math.max(-1, previewItem.oy + (mouse.y - lastY) / maxY))
+              lastX = mouse.x
+              lastY = mouse.y
+            }
+            onDoubleClicked: previewItem.resetFraming()
+          }
+
+          WheelHandler {
+            onWheel: function(ev) {
+              previewItem.zoomBy(ev.angleDelta.y > 0 ? 1.12 : 0.89)
+            }
+          }
+        }
+
+        // Zoom controls under the preview.
+        Row {
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.space(4)
+
+          Repeater {
+            model: [
+              { label: "−", title: "zoom out", act: function() { previewItem.zoomBy(1 / 1.2) } },
+              { label: "1:1", title: "reset framing", act: function() { previewItem.resetFraming() } },
+              { label: "+", title: "zoom in", act: function() { previewItem.zoomBy(1.2) } }
+            ]
+
+            delegate: Rectangle {
+              id: zoomBtn
+
+              required property var modelData
+              required property int index
+
+              width: Style.space(26)
+              height: Style.space(20)
+              radius: Style.space(5)
+              color: zoomMa.pressed ? Style.pressedFill
+                : zoomMa.containsMouse ? Style.hoverFill : Util.alpha(root.fg, 0.06)
+              border.width: 1
+              border.color: Util.alpha(root.fg, 0.18)
+
+              Text {
+                anchors.centerIn: parent
+                text: zoomBtn.modelData.label
+                textFormat: Text.PlainText
+                color: root.fg
+                opacity: 0.85
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: zoomBtn.modelData.label !== "−" && zoomBtn.modelData.label !== "+"
+              }
+
+              MouseArea {
+                id: zoomMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: zoomBtn.modelData.act()
+              }
+            }
+          }
+        }
+      }
+
+      Column {
+        id: applyColumn
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(6)
+        spacing: Style.space(5)
+        visible: root.selectedFile !== ""
 
-        PickButton {
-          label: "Use this image"
-          primary: true
-          enabled2: root.selectedFile !== ""
-          onClicked: root.use()
+        Text {
+          anchors.right: parent.right
+          text: root.selectedFile === (root.svc ? String(root.svc.customAvatarPath || "") : "")
+            ? "(current)" : root.selectedFile.split("/").pop()
+          textFormat: Text.PlainText
+          color: root.fg
+          opacity: 0.75
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideMiddle
+          width: Math.min(implicitWidth, footerButtons.width)
         }
 
-        PickButton {
-          label: "Reset"
-          onClicked: root.reset()
-        }
+        Row {
+          id: footerButtons
+          anchors.right: parent.right
+          spacing: Style.space(6)
 
-        PickButton {
-          label: "Cancel"
-          onClicked: root.close()
+          PickButton {
+            label: "Use this image"
+            primary: true
+            enabled2: root.selectedFile !== ""
+            onClicked: root.use()
+          }
+
+          PickButton {
+            label: "Reset"
+            onClicked: root.reset()
+          }
+
+          PickButton {
+            label: "Cancel"
+            onClicked: root.close()
+          }
         }
       }
     }

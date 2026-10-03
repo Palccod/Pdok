@@ -41,6 +41,9 @@ Rectangle {
   readonly property real framingZoom: svc ? Number(svc.avatarZoom) || 1 : 1
   readonly property real framingOx: svc ? Number(svc.avatarOx) || 0 : 0
   readonly property real framingOy: svc ? Number(svc.avatarOy) || 0 : 0
+  // Nothing rendered at all — the bare initials state (also the only place
+  // the faint disc background is wanted; pictures get no background).
+  readonly property bool bareAvatar: !customReady && !ghAvatar.visible && !faceAvatar.visible && !acctAvatar.visible
 
   color: "transparent"
   height: Style.space(58)
@@ -83,11 +86,12 @@ Rectangle {
         }
       }
 
-      // Initials fallback also backs transparent GIFs/PNGs.
+      // Faint disc only behind the bare initials — never behind pictures.
       Rectangle {
         anchors.fill: parent
         radius: width / 2
         color: Util.alpha(root.fg, 0.08)
+        visible: root.bareAvatar
       }
 
       // Custom pick wrappers: the layer+mask must live on a CIRCLE-SIZED
@@ -214,7 +218,7 @@ Rectangle {
 
       Text {
         anchors.centerIn: parent
-        visible: !root.customReady && !ghAvatar.visible && !faceAvatar.visible && !acctAvatar.visible
+        visible: root.bareAvatar
         text: root.userName.length > 0 ? root.userName.charAt(0).toUpperCase() : "?"
         textFormat: Text.PlainText
         color: root.fg
