@@ -17,7 +17,10 @@ Rectangle {
   signal refreshed()
 
   width: parent ? parent.width : 0
-  height: row.implicitHeight + 10
+  // Title height + divider offset — NOT row.implicitHeight, which is 0 for
+  // a plain Item and collapsed the header box so the divider drew down
+  // into the content below it.
+  height: titleText.implicitHeight + 10
   color: "transparent"
 
   Item {
